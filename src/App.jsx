@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { supabase } from "./supabase";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
 const SC=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#EC4899",bg:"#FDF2F8"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#3B82F6",bg:"#EFF6FF"},{color:"#2D7A4F",bg:"#E6F4EC"}];
@@ -120,7 +121,33 @@ export default function App(){
   const [showCols,setShowCols]=useState(false);
   const [cols,setCols]=useState({orderNum:true,customer:true,phone:true,date:true,jackets:true,total:true,paid:true,balance:true,status:true,supplier:true});
 
-  const t=T[lang];
+  const [loading,setLoading]=useState(true);
+
+  // ── Load data from Supabase on mount
+  useEffect(()=>{
+    const loadData=async()=>{
+      try{
+        const {data:ords}=await supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false});
+        const {data:sups}=await supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false});
+        if(ords&&ords.length>0){
+          setOrders(ords.map(o=>({
+            ...o,
+            payments:(o.payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
+            history:o.history||[]
+          })));
+        }
+        if(sups&&sups.length>0){
+          setSuppliers(sups.map(s=>({
+            ...s,
+            unitPrice:Number(s.unit_price)||0,
+            payments:(s.supplier_payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""}))
+          })));
+        }
+      }catch(e){console.log("Supabase not connected, using local data");}
+      setLoading(false);
+    };
+    loadData();
+  },[]);
   const rtl=lang==="ar";
   const dir=rtl?"rtl":"ltr";
   const sl=(id)=>t.statuses[id-1]||"";
@@ -170,57 +197,86 @@ export default function App(){
     return settings.invoiceFormat.replace("{prefix}",settings.invoicePrefix).replace("{year}",settings.cycleYear).replace("{num}",num);
   };
 
-  const saveOrd=()=>{
+  const saveOrd=async()=>{
     if(!newO.phone||!newO.jackets||!newO.total){showT(t.fillRequired,"error");return;}
     const id=genOrderId();
     setSettings(s=>({...s,nextOrderNum:s.nextOrderNum+1}));
-    setOrders(prev=>[...prev,{id,customer:newO.customer,phone:newO.phone,orderType:newO.orderType,date:new Date().toISOString().slice(0,10),jackets:Number(newO.jackets)||0,total:Number(newO.total)||0,paid:Number(newO.paid)||0,status:1,supplier:"",updated:new Date().toISOString().slice(0,10),payments:Number(newO.paid)>0?[{date:new Date().toISOString().slice(0,10),amount:Number(newO.paid),by:currentUser?.name||"Admin",ref:"",note:"Initial"}]:[],history:[]}]);
+    const orderData={id,customer:newO.customer,phone:newO.phone,order_type:newO.orderType,date:new Date().toISOString().slice(0,10),jackets:Number(newO.jackets)||0,total:Number(newO.total)||0,paid:Number(newO.paid)||0,status:1,supplier:"",updated:new Date().toISOString().slice(0,10),history:[]};
+    const newOrderObj={...orderData,orderType:newO.orderType,payments:Number(newO.paid)>0?[{date:new Date().toISOString().slice(0,10),amount:Number(newO.paid),by:currentUser?.name||"Admin",ref:"",note:"Initial"}]:[]};
+    try{
+      await supabase.from("orders").insert(orderData);
+      if(Number(newO.paid)>0){
+        await supabase.from("payments").insert({order_id:id,amount:Number(newO.paid),by:currentUser?.name||"Admin",ref:"",note:"Initial",date:new Date().toISOString().slice(0,10)});
+      }
+    }catch(e){console.log("Supabase error",e);}
+    setOrders(prev=>[newOrderObj,...prev]);
     setNewO({customer:"",phone:"",jackets:"",total:"",paid:"",orderType:""});setShowNew(false);showT(t.orderCreated);
   };
 
-  const deleteOrder=(id)=>{
+  const deleteOrder=async(id)=>{
+    try{await supabase.from("orders").delete().eq("id",id);}catch(e){}
     setOrders(prev=>prev.filter(o=>o.id!==id));
     setShowDeleteOrder(false);setDeleteOrderTarget(null);
     if(selected?.id===id){setSelected(null);setPage("orders");}
     showT(t.orderDeleted);
   };
 
-  const addPay=(oid,amt,ref,note)=>{
-    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid+amt,updated:new Date().toISOString().slice(0,10),payments:[...o.payments,{date:new Date().toISOString().slice(0,10),amount:amt,by:currentUser?.name||"Admin",ref,note}]}));
+  const addPay=async(oid,amt,ref,note)=>{
+    const d=new Date().toISOString().slice(0,10);
+    const newPay={date:d,amount:amt,by:currentUser?.name||"Admin",ref,note};
+    const cur=orders.find(o=>o.id===oid);
+    try{
+      await supabase.from("payments").insert({order_id:oid,amount:amt,by:currentUser?.name||"Admin",ref,note,date:d});
+      await supabase.from("orders").update({paid:(cur?.paid||0)+amt,updated:d}).eq("id",oid);
+    }catch(e){}
+    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid+amt,updated:d,payments:[...o.payments,newPay]}));
     showT(t.paymentSaved);setShowPay(false);setPayTarget(null);
   };
 
-  const updSt=(oid,ns)=>{
-    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,status:ns,updated:new Date().toISOString().slice(0,10)}));
+  const updSt=async(oid,ns)=>{
+    const d=new Date().toISOString().slice(0,10);
+    try{await supabase.from("orders").update({status:ns,updated:d}).eq("id",oid);}catch(e){}
+    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,status:ns,updated:d}));
     showT(rtl?"تم تحديث الحالة!":"Status updated!");
   };
 
   // ── Supplier actions
-  const saveSup=()=>{
+  const saveSup=async()=>{
     if(!supForm.name){showT(rtl?"أدخل اسم المورد":"Enter supplier name","error");return;}
     if(editSup){
-      setSuppliers(prev=>prev.map(s=>s.id===editSup.id?{...s,...supForm}:s));showT(t.supplierUpdated);
+      try{await supabase.from("suppliers").update({name:supForm.name,phone:supForm.phone,spec:supForm.spec,unit_price:Number(supForm.unitPrice)||0}).eq("id",editSup.id);}catch(e){}
+      setSuppliers(prev=>prev.map(s=>s.id===editSup.id?{...s,...supForm,unitPrice:Number(supForm.unitPrice)||0}:s));showT(t.supplierUpdated);
     } else {
-      setSuppliers(prev=>[...prev,{id:"sup-"+Date.now(),...supForm,payments:[]}]);showT(t.supplierAdded);
+      const newId="sup-"+Date.now();
+      try{await supabase.from("suppliers").insert({id:newId,name:supForm.name,phone:supForm.phone,spec:supForm.spec,unit_price:Number(supForm.unitPrice)||0});}catch(e){}
+      setSuppliers(prev=>[...prev,{id:newId,...supForm,unitPrice:Number(supForm.unitPrice)||0,payments:[]}]);showT(t.supplierAdded);
     }
     setShowAddSup(false);setEditSup(null);setSupForm({name:"",phone:"",spec:"",unitPrice:""});
   };
 
-  const deleteSup=(id)=>{
+  const deleteSup=async(id)=>{
+    try{await supabase.from("suppliers").delete().eq("id",id);}catch(e){}
+    const sName=suppliers.find(s=>s.id===id)?.name||"";
     setSuppliers(prev=>prev.filter(s=>s.id!==id));
-    setOrders(prev=>prev.map(o=>o.supplier===suppliers.find(s=>s.id===id)?.name?{...o,supplier:""}:o));
+    setOrders(prev=>prev.map(o=>o.supplier===sName?{...o,supplier:""}:o));
     showT(t.supplierDeleted);
   };
 
-  const confirmAssign=()=>{
+  const confirmAssign=async()=>{
     if(!assignSup||assignSelected.length===0){showT(rtl?"اختر مورد وطلبات":"Select supplier and orders","error");return;}
     const sName=suppliers.find(s=>s.id===assignSup)?.name||"";
-    setOrders(prev=>prev.map(o=>assignSelected.includes(o.id)?{...o,supplier:sName,updated:new Date().toISOString().slice(0,10)}:o));
+    const d=new Date().toISOString().slice(0,10);
+    try{
+      for(const oid of assignSelected){await supabase.from("orders").update({supplier:sName,updated:d}).eq("id",oid);}
+    }catch(e){}
+    setOrders(prev=>prev.map(o=>assignSelected.includes(o.id)?{...o,supplier:sName,updated:d}:o));
     setShowAssign(false);setAssignSup("");setAssignSelected([]);showT(t.ordersAssigned);
   };
 
-  const addSupPay=(sid,amt,ref,note)=>{
-    setSuppliers(prev=>prev.map(s=>s.id!==sid?s:{...s,payments:[...(s.payments||[]),{date:new Date().toISOString().slice(0,10),amount:amt,ref,note,by:currentUser?.name||"Admin"}]}));
+  const addSupPay=async(sid,amt,ref,note)=>{
+    const d=new Date().toISOString().slice(0,10);
+    try{await supabase.from("supplier_payments").insert({supplier_id:sid,amount:amt,ref,note,by:currentUser?.name||"Admin",date:d});}catch(e){}
+    setSuppliers(prev=>prev.map(s=>s.id!==sid?s:{...s,payments:[...(s.payments||[]),{date:d,amount:amt,ref,note,by:currentUser?.name||"Admin"}]}));
     showT(t.paymentSaved);setShowSupPay(false);setSupPayTarget(null);
   };
 
@@ -303,6 +359,18 @@ export default function App(){
       <span>{icon}</span>{label}
     </button>
   );
+
+  // ── LOADING SCREEN
+  if(loading){
+    return(
+      <div style={{minHeight:"100vh",background:"#0F1629",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,system-ui,sans-serif"}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:32,fontWeight:900,color:"#E05E5C",letterSpacing:2,marginBottom:16}}>THAWB</div>
+          <div style={{color:"#94A3B8",fontSize:14}}>Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   // ── LOGIN SCREEN
   if(!currentUser){
