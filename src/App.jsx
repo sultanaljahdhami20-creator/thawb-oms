@@ -410,11 +410,6 @@ export default function App(){
             </div>
             <button onClick={doLogin} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"12px",fontWeight:800,cursor:"pointer",fontSize:15,marginTop:4}}>Login →</button>
           </div>
-          
-            <div style={{fontWeight:600,marginBottom:6,color:"#94A3B8"}}>Demo accounts:</div>
-            <div>sultan@thawb.om / admin123</div>
-            <div>sara@thawb.om / sara123</div>
-          </div>
         </div>
       </div>
     );
@@ -846,12 +841,12 @@ export default function App(){
                     </div>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
                       <span style={{background:u.dashboard!==false?"#E6F4EC":"#F1F5F9",color:u.dashboard!==false?"#2D7A4F":"#94A3B8",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:600,cursor:"pointer"}}
-                        onClick={()=>setUsers(prev=>prev.map(x=>x.id!==u.id?x:{...x,dashboard:!( u.dashboard!==false)}))}>
+                        onClick={async()=>{const newVal=!(u.dashboard!==false);try{await supabase.from("users").update({dashboard:newVal}).eq("id",u.id);}catch(e){}setUsers(prev=>prev.map(x=>x.id!==u.id?x:{...x,dashboard:newVal}));}}>
                         {u.dashboard!==false?"✓":"✗"} {rtl?"الداشبورد":"Dashboard"}
                       </span>
                       {[["orders",t.permOrders],["payments",t.permPayments],["reports",t.permReports],["suppliers",t.permSuppliers],["users",t.permUsers]].map(([p,l])=>(
                         <span key={p} style={{background:u.perms[p]?"#E6F4EC":"#F1F5F9",color:u.perms[p]?"#2D7A4F":"#94A3B8",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:600,cursor:"pointer"}}
-                          onClick={()=>setUsers(prev=>prev.map(x=>x.id!==u.id?x:{...x,perms:{...x.perms,[p]:!x.perms[p]}}))}>
+                          onClick={async()=>{const newPerms={...u.perms,[p]:!u.perms[p]};try{await supabase.from("users").update({perms:newPerms}).eq("id",u.id);}catch(e){}setUsers(prev=>prev.map(x=>x.id!==u.id?x:{...x,perms:newPerms}));}}>
                           {u.perms[p]?"✓":"✗"} {l}
                         </span>
                       ))}
