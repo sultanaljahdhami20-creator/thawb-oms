@@ -410,7 +410,7 @@ export default function App(){
             </div>
             <button onClick={doLogin} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"12px",fontWeight:800,cursor:"pointer",fontSize:15,marginTop:4}}>Login →</button>
           </div>
-          <div style={{marginTop:20,padding:"12px",background:"#0F1629",borderRadius:8,fontSize:11,color:"#64748B"}}>
+          
             <div style={{fontWeight:600,marginBottom:6,color:"#94A3B8"}}>Demo accounts:</div>
             <div>sultan@thawb.om / admin123</div>
             <div>sara@thawb.om / sara123</div>
