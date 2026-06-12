@@ -148,6 +148,8 @@ export default function App(){
     };
     loadData();
   },[]);
+
+  const t=T[lang];
   const rtl=lang==="ar";
   const dir=rtl?"rtl":"ltr";
   const sl=(id)=>t.statuses[id-1]||"";
