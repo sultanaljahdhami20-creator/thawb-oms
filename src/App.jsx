@@ -129,6 +129,7 @@ export default function App(){
       try{
         const {data:ords}=await supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false});
         const {data:sups}=await supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false});
+        const {data:usrs}=await supabase.from("users").select("*").order("created_at",{ascending:true});
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
@@ -141,6 +142,13 @@ export default function App(){
             ...s,
             unitPrice:Number(s.unit_price)||0,
             payments:(s.supplier_payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""}))
+          })));
+        }
+        if(usrs&&usrs.length>0){
+          setUsers(usrs.map(u=>({
+            ...u,
+            perms:u.perms||{orders:true,payments:true,reports:false,suppliers:false,users:false},
+            dashboard:u.dashboard!==false
           })));
         }
       }catch(e){console.log("Supabase not connected, using local data");}
@@ -290,16 +298,23 @@ export default function App(){
     showT(t.userAdded);
   };
 
-  const deleteUser=(id)=>{setUsers(prev=>prev.filter(u=>u.id!==id));showT(t.userDeleted);};
+  const deleteUser=async(id)=>{
+    try{await supabase.from("users").delete().eq("id",id);}catch(e){}
+    setUsers(prev=>prev.filter(u=>u.id!==id));showT(t.userDeleted);
+  };
 
-  const saveUserEdit=()=>{
+  const saveUserEdit=async()=>{
     if(!userForm.name||!userForm.email){showT(rtl?"يرجى تعبئة الحقول":"Fill all fields","error");return;}
     if(editUser){
+      const updateData={name:userForm.name,email:userForm.email,role:userForm.role,dashboard:userForm.dashboard,perms:userForm.perms,...(userForm.pass?{pass:userForm.pass}:{})};
+      try{await supabase.from("users").update(updateData).eq("id",editUser.id);}catch(e){}
       setUsers(prev=>prev.map(u=>u.id!==editUser.id?u:{...u,...userForm,...(userForm.pass?{pass:userForm.pass}:{pass:u.pass})}));
       showT(rtl?"تم تحديث المستخدم!":"User updated!");
     } else {
       if(!userForm.pass){showT(rtl?"أدخل كلمة السر":"Enter password","error");return;}
-      setUsers(prev=>[...prev,{id:"u-"+Date.now(),...userForm}]);
+      const newId="u-"+Date.now();
+      try{await supabase.from("users").insert({id:newId,name:userForm.name,email:userForm.email,role:userForm.role,pass:userForm.pass,dashboard:userForm.dashboard,perms:userForm.perms});}catch(e){}
+      setUsers(prev=>[...prev,{id:newId,...userForm}]);
       showT(t.userAdded);
     }
     setShowAddUser(false);setEditUser(null);
