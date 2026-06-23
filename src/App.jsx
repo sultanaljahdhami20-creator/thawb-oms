@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabase";
+import * as XLSX from "xlsx";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
 const SC=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#EC4899",bg:"#FDF2F8"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#3B82F6",bg:"#EFF6FF"},{color:"#2D7A4F",bg:"#E6F4EC"}];
@@ -106,6 +107,9 @@ export default function App(){
   const [showEditOrder,setShowEditOrder]=useState(false);
   const [editOrderTarget,setEditOrderTarget]=useState(null);
   const [editOrderForm,setEditOrderForm]=useState({customer:"",phone:"",jackets:"",total:""});
+  const [showImport,setShowImport]=useState(false);
+  const [importRows,setImportRows]=useState([]);
+  const [importing,setImporting]=useState(false);
 
   // ── Print/Reports
   const [showPrint,setShowPrint]=useState(false);
@@ -122,6 +126,7 @@ export default function App(){
   const [cols,setCols]=useState({orderNum:true,customer:true,phone:true,date:true,jackets:true,total:true,paid:true,balance:true,status:true,supplier:true});
 
   const [loading,setLoading]=useState(true);
+  const [mobileNav,setMobileNav]=useState(false);
 
   // ── Load data from Supabase on mount
   useEffect(()=>{
@@ -221,6 +226,60 @@ export default function App(){
     }catch(e){console.log("Supabase error",e);}
     setOrders(prev=>[newOrderObj,...prev]);
     setNewO({customer:"",phone:"",jackets:"",total:"",paid:"",orderType:""});setShowNew(false);showT(t.orderCreated);
+  };
+
+  // ── Excel Import
+  const handleImportFile=(e)=>{
+    const file=e.target.files[0];
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=(evt)=>{
+      try{
+        const data=new Uint8Array(evt.target.result);
+        const wb=XLSX.read(data,{type:"array"});
+        const sheet=wb.Sheets[wb.SheetNames[0]];
+        const json=XLSX.utils.sheet_to_json(sheet,{defval:""});
+        const mapped=json.map((row,i)=>{
+          const get=(...keys)=>{for(const k of keys){for(const rk of Object.keys(row)){if(rk.toLowerCase().trim()===k.toLowerCase()){return row[rk];}}}return "";};
+          return{
+            _row:i+2,
+            customer:String(get("customer","name","اسم العميل","العميل")||"").trim(),
+            phone:String(get("phone","رقم الهاتف","الهاتف")||"").trim(),
+            jackets:Number(get("jackets","numjackets","عدد الجاكيتات","جاكيت"))||0,
+            total:Number(get("total","totalamount","المبلغ الإجمالي","الإجمالي"))||0,
+            paid:Number(get("paid","paidamount","المبلغ المدفوع","المدفوع"))||0,
+            orderType:String(get("ordertype","type","نوع الطلب")||"").trim(),
+            valid:true
+          };
+        }).map(r=>({...r,valid:!!(r.phone&&r.jackets>0&&r.total>0)}));
+        setImportRows(mapped);
+      }catch(err){showT(rtl?"خطأ في قراءة الملف":"Error reading file","error");}
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const confirmImport=async()=>{
+    const validRows=importRows.filter(r=>r.valid);
+    if(validRows.length===0){showT(rtl?"لا توجد صفوف صحيحة":"No valid rows","error");return;}
+    setImporting(true);
+    const newOrders=[];
+    let numStart=settings.nextOrderNum;
+    for(const row of validRows){
+      const num=String(numStart).padStart(3,"0");
+      const id=settings.invoiceFormat.replace("{prefix}",settings.invoicePrefix).replace("{year}",settings.cycleYear).replace("{num}",num);
+      numStart++;
+      const d=new Date().toISOString().slice(0,10);
+      const orderData={id,customer:row.customer,phone:row.phone,order_type:row.orderType,date:d,jackets:row.jackets,total:row.total,paid:row.paid,status:1,supplier:"",updated:d,history:[]};
+      try{
+        await supabase.from("orders").insert(orderData);
+        if(row.paid>0){await supabase.from("payments").insert({order_id:id,amount:row.paid,by:currentUser?.name||"Admin",ref:"",note:"Initial (Import)",date:d});}
+      }catch(e){console.log("Import error",e);}
+      newOrders.push({...orderData,orderType:row.orderType,payments:row.paid>0?[{date:d,amount:row.paid,by:currentUser?.name||"Admin",ref:"",note:"Initial (Import)"}]:[]});
+    }
+    setSettings(s=>({...s,nextOrderNum:numStart}));
+    setOrders(prev=>[...newOrders,...prev]);
+    setImporting(false);setShowImport(false);setImportRows([]);
+    showT(rtl?`تم استيراد ${newOrders.length} طلب!`:`Imported ${newOrders.length} orders!`);
   };
 
   const deleteOrder=async(id)=>{
@@ -372,7 +431,7 @@ export default function App(){
   const Btn=(props)=><button {...props} style={{border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13,...props.style}}/>;
   const Badge=({status})=>{const s=sc(status);return <span style={{background:s.bg,color:s.color,padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{sl(status)}</span>;};
   const NI=(id,icon,label,hidden)=>hidden?null:(
-    <button key={id} onClick={()=>setPage(id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:8,width:"100%",border:"none",cursor:"pointer",flexDirection:rtl?"row-reverse":"row",background:page===id?"rgba(224,94,92,0.18)":"transparent",color:page===id?"#E05E5C":"rgba(255,255,255,0.75)",fontWeight:page===id?700:500,fontSize:14,textAlign:rtl?"right":"left"}}>
+    <button key={id} onClick={()=>{setPage(id);setMobileNav(false);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:8,width:"100%",border:"none",cursor:"pointer",flexDirection:rtl?"row-reverse":"row",background:page===id?"rgba(224,94,92,0.18)":"transparent",color:page===id?"#E05E5C":"rgba(255,255,255,0.75)",fontWeight:page===id?700:500,fontSize:14,textAlign:rtl?"right":"left"}}>
       <span>{icon}</span>{label}
     </button>
   );
@@ -416,8 +475,9 @@ export default function App(){
   }
 
   return(
-    <div style={{display:"flex",height:"100vh",fontFamily:"Inter,system-ui,sans-serif",background:bgP,color:tp,direction:dir}}>
-      <aside style={{width:220,background:bgS,display:"flex",flexDirection:"column",padding:"20px 12px",gap:4,flexShrink:0,order:rtl?1:0}}>
+    <div className="app-layout" style={{display:"flex",height:"100vh",fontFamily:"Inter,system-ui,sans-serif",background:bgP,color:tp,direction:dir}}>
+      {mobileNav&&<div className="mobile-overlay" onClick={()=>setMobileNav(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:40}}/>}
+      <aside className={`app-sidebar${mobileNav?" sidebar-open":""}`} style={{width:220,background:bgS,display:"flex",flexDirection:"column",padding:"20px 12px",gap:4,flexShrink:0,order:rtl?1:0}}>
         <div style={{padding:"8px 4px 24px",borderBottom:"1px solid rgba(255,255,255,0.1)",marginBottom:8}}>
           <div style={{fontSize:18,fontWeight:800,color:"#E05E5C"}}>{t.brand}</div>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{t.brandSub}</div>
@@ -436,7 +496,8 @@ export default function App(){
         </div>
       </aside>
 
-      <main style={{flex:1,overflow:"auto",padding:"28px 32px"}}>
+      <main className="app-main" style={{flex:1,overflow:"auto",padding:"28px 32px"}}>
+        <button className="mobile-menu-btn" onClick={()=>setMobileNav(true)} style={{display:"none",position:"fixed",top:12,left:rtl?"auto":12,right:rtl?12:"auto",zIndex:30,background:bgS,border:"none",borderRadius:8,padding:"10px 14px",cursor:"pointer",color:"#fff",fontSize:18}}>☰</button>
         {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:999,background:toast.type==="error"?"#E05E5C":"#2D7A4F",color:"#fff",padding:"12px 20px",borderRadius:10,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>{toast.type==="error"?"⚠️ ":"✓ "}{toast.msg}</div>}
 
         {/* DASHBOARD */}
@@ -445,7 +506,7 @@ export default function App(){
             <div><h1 style={{fontSize:24,fontWeight:800,margin:0}}>{t.dashboard}</h1><p style={{margin:0,color:tm,fontSize:14}}>{rtl?"مرحباً،":"Welcome,"} {currentUser.name}</p></div>
             {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
           </div>
-          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:24}}>
+          <div className="stats-row" style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:24}}>
             {[{l:t.totalOrders,v:orders.length,i:"📦",c:"#202F4D"},{l:t.totalSales,v:fmt(totSales),i:"💰",c:"#202F4D"},{l:t.collected,v:fmt(totPaid),i:"✅",c:"#2D7A4F"},{l:t.outstanding,v:fmt(totSales-totPaid),i:"⏳",c:"#E05E5C"}].map(s=>(
               <div key={s.l} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:"20px 24px",flex:1,minWidth:150}}>
                 <div style={{fontSize:12,color:C.slate,fontWeight:600,marginBottom:8}}>{s.i} {s.l}</div>
@@ -453,7 +514,7 @@ export default function App(){
               </div>
             ))}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
+          <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
             <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
               <h3 style={{margin:"0 0 14px",fontSize:14,fontWeight:700}}>{t.ordersByStatus}</h3>
               {[...Array(11)].map((_,i)=>{const cnt=orders.filter(o=>o.status===i+1).length;if(!cnt)return null;const s=sc(i+1);return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+bc}}><span style={{fontSize:12,color:s.color,fontWeight:600}}>{t.statuses[i]}</span><span style={{background:s.bg,color:s.color,borderRadius:12,padding:"2px 10px",fontSize:12,fontWeight:700}}>{cnt}</span></div>;})}
@@ -485,9 +546,12 @@ export default function App(){
 
         {/* ORDERS */}
         {page==="orders"&&<div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.allOrders}</h1>
-            {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
+            <div style={{display:"flex",gap:10}}>
+              {can("orders")&&<button onClick={()=>setShowImport(true)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>📥 {rtl?"استيراد Excel":"Import Excel"}</button>}
+              {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
+            </div>
           </div>
           <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.searchPlaceholder} style={{...IS,minWidth:220,width:"auto"}}/>
@@ -556,7 +620,7 @@ export default function App(){
                 })}
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
+            <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
               <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>👤 {t.customerInfo}</h3>
                 {[[t.name,o.customer||"--"],[t.phone,o.phone],[t.orderDate,o.date]].map(([k,v])=>(
@@ -649,7 +713,7 @@ export default function App(){
             </div>
           </div>
           {suppliers.length===0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}>{t.noSuppliersYet}</div>}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
             {suppliers.map(sup=>{
               const supOrders=orders.filter(o=>o.supplier===sup.name);
               const act=supOrders.filter(o=>o.status<11);
@@ -860,7 +924,7 @@ export default function App(){
         {/* SETTINGS */}
         {page==="settings"&&currentUser.role==="admin"&&<div>
           <h1 style={{fontSize:22,fontWeight:800,marginBottom:24}}>⚙️ {rtl?"الإعدادات":"System Settings"}</h1>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+          <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
 
             {/* Cycle Settings */}
             <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24}}>
@@ -961,7 +1025,7 @@ export default function App(){
             <span style={{fontSize:12,color:C.slate}}>{rtl?"رقم الطلب القادم":"Next Order ID"}</span>
             <span style={{fontWeight:800,color:"#E05E5C",fontSize:15,fontFamily:"monospace"}}>{genOrderId()}</span>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.customerName}</label><input value={newO.customer} onChange={e=>setNewO(p=>({...p,customer:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.phoneNumber}</label><input value={newO.phone} onChange={e=>setNewO(p=>({...p,phone:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.numJackets}</label><input type="number" value={newO.jackets} onChange={e=>setNewO(p=>({...p,jackets:e.target.value}))} style={IS}/></div>
@@ -979,6 +1043,58 @@ export default function App(){
             <button onClick={()=>setShowNew(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
             <button onClick={saveOrd} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{t.createOrderBtn}</button>
           </div>
+        </div>
+      </div>}
+
+      {/* IMPORT EXCEL MODAL */}
+      {showImport&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!importing&&(setShowImport(false),setImportRows([]))}>
+        <div style={{background:bgC,borderRadius:16,padding:32,width:680,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
+          <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>📥 {rtl?"استيراد طلبات من Excel":"Import Orders from Excel"}</h2>
+          <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{rtl?"الأعمدة المطلوبة: الاسم، الهاتف، عدد الجاكيتات، المبلغ الإجمالي، المبلغ المدفوع (اختياري)":"Required columns: Customer, Phone, Jackets, Total, Paid (optional)"}</p>
+
+          {importRows.length===0?<>
+            <div style={{border:"2px dashed "+bc,borderRadius:12,padding:40,textAlign:"center"}}>
+              <div style={{fontSize:36,marginBottom:10}}>📄</div>
+              <label style={{display:"inline-block",background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontWeight:700,cursor:"pointer"}}>
+                {rtl?"اختر ملف Excel":"Choose Excel File"}
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleImportFile} style={{display:"none"}}/>
+              </label>
+              <p style={{color:tm,fontSize:12,marginTop:14}}>{rtl?".xlsx أو .xls أو .csv":".xlsx, .xls, or .csv"}</p>
+            </div>
+            <div style={{display:"flex",justifyContent:"flex-end",marginTop:20}}>
+              <button onClick={()=>{setShowImport(false);setImportRows([]);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+            </div>
+          </>:<>
+            <div style={{background:C.slateLight,borderRadius:8,padding:"10px 14px",marginBottom:14,display:"flex",gap:16,fontSize:13}}>
+              <span>{rtl?"إجمالي الصفوف:":"Total rows:"} <b>{importRows.length}</b></span>
+              <span style={{color:"#2D7A4F"}}>{rtl?"صحيحة:":"Valid:"} <b>{importRows.filter(r=>r.valid).length}</b></span>
+              <span style={{color:"#E05E5C"}}>{rtl?"بها خطأ:":"Invalid:"} <b>{importRows.filter(r=>!r.valid).length}</b></span>
+            </div>
+            <div style={{maxHeight:320,overflowY:"auto",border:"1px solid "+bc,borderRadius:10}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:C.slateLight}}>{["#",t.customer,t.phone,t.jackets,t.total,t.paid,rtl?"الحالة":"Status"].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:700,color:C.slate,whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {importRows.map((r,i)=>(
+                    <tr key={i} style={{borderTop:"1px solid "+bc,background:r.valid?"transparent":"#FEF2F2"}}>
+                      <td style={{padding:"7px 10px",color:tm}}>{r._row}</td>
+                      <td style={{padding:"7px 10px"}}>{r.customer||"--"}</td>
+                      <td style={{padding:"7px 10px"}}>{r.phone||<span style={{color:"#E05E5C"}}>{rtl?"مفقود":"missing"}</span>}</td>
+                      <td style={{padding:"7px 10px"}}>{r.jackets||<span style={{color:"#E05E5C"}}>0</span>}</td>
+                      <td style={{padding:"7px 10px"}}>{r.total?fmt(r.total):<span style={{color:"#E05E5C"}}>0</span>}</td>
+                      <td style={{padding:"7px 10px"}}>{fmt(r.paid)}</td>
+                      <td style={{padding:"7px 10px"}}>{r.valid?<span style={{color:"#2D7A4F",fontWeight:700}}>✓ {rtl?"جاهز":"OK"}</span>:<span style={{color:"#E05E5C",fontWeight:700}}>✕ {rtl?"خطأ":"Error"}</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
+              <button disabled={importing} onClick={()=>{setShowImport(false);setImportRows([]);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:importing?"not-allowed":"pointer",color:tp,opacity:importing?0.5:1}}>{t.cancel}</button>
+              <button disabled={importing||importRows.filter(r=>r.valid).length===0} onClick={confirmImport} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:importing?"not-allowed":"pointer",opacity:importing?0.6:1}}>
+                {importing?(rtl?"جارٍ الاستيراد...":"Importing..."):(rtl?`استيراد ${importRows.filter(r=>r.valid).length} طلب`:`Import ${importRows.filter(r=>r.valid).length} Orders`)}
+              </button>
+            </div>
+          </>}
         </div>
       </div>}
 
@@ -1097,7 +1213,7 @@ export default function App(){
       {showAddUser&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowAddUser(false),setEditUser(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:480,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{editUser?(rtl?"تعديل المستخدم":"Edit User"):t.addUser}</h2>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+          <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.userName}</label><input value={userForm.name} onChange={e=>setUserForm(p=>({...p,name:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.userEmail}</label><input value={userForm.email} onChange={e=>setUserForm(p=>({...p,email:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.userPass} {editUser&&<span style={{color:tm,fontWeight:400}}>{rtl?"(اتركه فارغاً للإبقاء)":"(leave blank to keep)"}</span>}</label><input type="password" value={userForm.pass} onChange={e=>setUserForm(p=>({...p,pass:e.target.value}))} style={IS}/></div>
@@ -1197,7 +1313,7 @@ export default function App(){
         <div style={{background:bgC,borderRadius:16,padding:32,width:460,maxWidth:"95vw"}}>
           <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>✏️ {rtl?"تعديل الطلب":"Edit Order"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{editOrderTarget.id}</p>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:8}}>
+          <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:8}}>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.customerName}</label><input value={editOrderForm.customer} onChange={e=>setEditOrderForm(p=>({...p,customer:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.phoneNumber}</label><input value={editOrderForm.phone} onChange={e=>setEditOrderForm(p=>({...p,phone:e.target.value}))} style={IS}/></div>
             <div>
@@ -1234,7 +1350,7 @@ export default function App(){
                 <span style={{background:sc(printO.status).bg,color:sc(printO.status).color,padding:"2px 10px",borderRadius:12,fontSize:11,fontWeight:700}}>{sl(printO.status)}</span>
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+            <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
               <div>
                 <div style={{fontSize:10,fontWeight:800,textTransform:"uppercase",color:C.slate,marginBottom:7}}>{t.customerInfo}</div>
                 {[[t.name,printO.customer||"--"],[t.phone,printO.phone],[t.date,printO.date]].map(([k,v])=>(
