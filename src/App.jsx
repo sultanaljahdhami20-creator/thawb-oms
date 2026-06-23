@@ -158,12 +158,14 @@ export default function App(){
             payments:(s.supplier_payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""}))
           })));
         }
+        let loadedUsers=null;
         if(usrs&&usrs.length>0){
-          setUsers(usrs.map(u=>({
+          loadedUsers=usrs.map(u=>({
             ...u,
             perms:u.perms||{orders:true,payments:true,reports:false,suppliers:false,users:false},
             dashboard:u.dashboard!==false
-          })));
+          }));
+          setUsers(loadedUsers);
         }
         if(sett){
           const loadedSettings={
@@ -179,6 +181,15 @@ export default function App(){
           setSettings(loadedSettings);
           setSettingsForm(loadedSettings);
         }
+        try{
+          const savedUserId=localStorage.getItem("thawb_user_id");
+          if(savedUserId){
+            const pool=loadedUsers||SEED_USERS;
+            const restoredUser=pool.find(u=>u.id===savedUserId);
+            if(restoredUser)setCurrentUser(restoredUser);
+            else localStorage.removeItem("thawb_user_id");
+          }
+        }catch(e){}
       }catch(e){console.log("Supabase not connected, using local data");}
       setLoading(false);
     };
@@ -199,6 +210,7 @@ export default function App(){
     const u=users.find(x=>x.email===loginEmail&&x.pass===loginPass);
     if(!u){setLoginErr(rtl?"بيانات خاطئة":"Wrong email or password");return;}
     setCurrentUser(u);setLoginErr("");
+    try{localStorage.setItem("thawb_user_id",u.id);}catch(e){}
   };
 
   const totSales=orders.reduce((s,o)=>s+o.total,0);
@@ -609,7 +621,7 @@ export default function App(){
         <div style={{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.1)",paddingTop:12,display:"flex",flexDirection:"column",gap:4}}>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"rgba(255,255,255,0.08)",borderRadius:8,color:"#fff",fontSize:13,fontWeight:700}}>🌐 {lang==="en"?"العربية":"English"}</button>
           <button onClick={()=>setDark(!dm)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,0.6)",fontSize:13}}>{dm?"☀️":"🌙"} {dm?t.lightMode:t.darkMode}</button>
-          <button onClick={()=>setCurrentUser(null)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,0.4)",fontSize:12}}>🚪 {rtl?"خروج":"Logout"}</button>
+          <button onClick={()=>{setCurrentUser(null);try{localStorage.removeItem("thawb_user_id");}catch(e){}}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,0.4)",fontSize:12}}>🚪 {rtl?"خروج":"Logout"}</button>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",padding:"4px 16px"}}>{currentUser.name}</div>
         </div>
       </aside>
