@@ -110,6 +110,13 @@ export default function App(){
   const [showImport,setShowImport]=useState(false);
   const [importRows,setImportRows]=useState([]);
   const [importing,setImporting]=useState(false);
+  const [savingOrder,setSavingOrder]=useState(false);
+  const [selectedOrderIds,setSelectedOrderIds]=useState([]);
+  const [showBulkActions,setShowBulkActions]=useState(false);
+  const [showRenumber,setShowRenumber]=useState(false);
+  const [renumberTarget,setRenumberTarget]=useState(null);
+  const [renumberValue,setRenumberValue]=useState("");
+  const [renumbering,setRenumbering]=useState(false);
 
   // ── Print/Reports
   const [showPrint,setShowPrint]=useState(false);
@@ -213,7 +220,9 @@ export default function App(){
   };
 
   const saveOrd=async()=>{
+    if(savingOrder)return;
     if(!newO.phone||!newO.jackets||!newO.total){showT(t.fillRequired,"error");return;}
+    setSavingOrder(true);
     const id=genOrderId();
     setSettings(s=>({...s,nextOrderNum:s.nextOrderNum+1}));
     const orderData={id,customer:newO.customer,phone:newO.phone,order_type:newO.orderType,date:new Date().toISOString().slice(0,10),jackets:Number(newO.jackets)||0,total:Number(newO.total)||0,paid:Number(newO.paid)||0,status:1,supplier:"",updated:new Date().toISOString().slice(0,10),history:[]};
@@ -226,6 +235,7 @@ export default function App(){
     }catch(e){console.log("Supabase error",e);}
     setOrders(prev=>[newOrderObj,...prev]);
     setNewO({customer:"",phone:"",jackets:"",total:"",paid:"",orderType:""});setShowNew(false);showT(t.orderCreated);
+    setSavingOrder(false);
   };
 
   // ── Excel Import
@@ -290,6 +300,74 @@ export default function App(){
     showT(t.orderDeleted);
   };
 
+  // ── Extract numeric portion of an order id based on current format
+  const extractOrderNum=(id)=>{
+    const fmtStr=settings.invoiceFormat.replace("{prefix}",settings.invoicePrefix).replace("{year}",settings.cycleYear);
+    const parts=fmtStr.split("{num}");
+    const prefix=parts[0]||"",suffix=parts[1]||"";
+    if(!id.startsWith(prefix)||!id.endsWith(suffix))return null;
+    const numStr=id.slice(prefix.length,id.length-suffix.length||undefined);
+    if(!/^\d+$/.test(numStr))return null;
+    return {numStr,numVal:Number(numStr),prefix,suffix,width:numStr.length};
+  };
+
+  const buildOrderId=(numVal,width,prefix,suffix)=>prefix+String(numVal).padStart(width,"0")+suffix;
+
+  const renumberOrder=async(oldId,newNumVal)=>{
+    if(renumbering)return;
+    const info=extractOrderNum(oldId);
+    if(!info){showT(rtl?"رقم الطلب لا يطابق صيغة الترقيم الحالية":"Order ID doesn't match current numbering format","error");return;}
+    if(newNumVal===info.numVal){setShowRenumber(false);return;}
+    setRenumbering(true);
+    try{
+      const matching=orders.map(o=>({order:o,info:extractOrderNum(o.id)})).filter(x=>x.info&&x.info.prefix===info.prefix&&x.info.suffix===info.suffix);
+      const newId=buildOrderId(newNumVal,info.width,info.prefix,info.suffix);
+      if(matching.some(x=>x.order.id===newId)){showT(rtl?"هذا الرقم مستخدم بالفعل":"This number is already used","error");setRenumbering(false);return;}
+
+      const moves=[{fromId:oldId,toId:newId}];
+      if(newNumVal>info.numVal){
+        matching.forEach(x=>{
+          if(x.order.id===oldId)return;
+          if(x.info.numVal>info.numVal&&x.info.numVal<=newNumVal){
+            moves.push({fromId:x.order.id,toId:buildOrderId(x.info.numVal-1,info.width,info.prefix,info.suffix)});
+          }
+        });
+      } else {
+        matching.forEach(x=>{
+          if(x.order.id===oldId)return;
+          if(x.info.numVal>=newNumVal&&x.info.numVal<info.numVal){
+            moves.push({fromId:x.order.id,toId:buildOrderId(x.info.numVal+1,info.width,info.prefix,info.suffix)});
+          }
+        });
+      }
+
+      const movesWithTemp=moves.map((m,idx)=>({...m,tempId:"TMP-"+Date.now()+"-"+idx}));
+
+      // Pass 1: move everything to unique temp ids (avoids unique constraint collisions)
+      for(const m of movesWithTemp){
+        await supabase.from("orders").update({id:m.tempId}).eq("id",m.fromId);
+        await supabase.from("payments").update({order_id:m.tempId}).eq("order_id",m.fromId);
+      }
+      // Pass 2: move from temp ids to final ids
+      for(const m of movesWithTemp){
+        await supabase.from("orders").update({id:m.toId}).eq("id",m.tempId);
+        await supabase.from("payments").update({order_id:m.toId}).eq("order_id",m.tempId);
+      }
+
+      const moveMap={};
+      moves.forEach(m=>{moveMap[m.fromId]=m.toId;});
+      setOrders(prev=>prev.map(o=>moveMap[o.id]?{...o,id:moveMap[o.id]}:o));
+      if(selected&&moveMap[selected.id])setSelected(s=>({...s,id:moveMap[s.id]}));
+
+      setShowRenumber(false);setRenumberTarget(null);setRenumberValue("");
+      showT(rtl?"تم إعادة الترقيم بنجاح!":"Renumbered successfully!");
+    }catch(e){
+      console.log("Renumber error",e);
+      showT(rtl?"حدث خطأ أثناء إعادة الترقيم":"Error while renumbering","error");
+    }
+    setRenumbering(false);
+  };
+
   const addPay=async(oid,amt,ref,note)=>{
     const d=new Date().toISOString().slice(0,10);
     const newPay={date:d,amount:amt,by:currentUser?.name||"Admin",ref,note};
@@ -339,7 +417,7 @@ export default function App(){
       for(const oid of assignSelected){await supabase.from("orders").update({supplier:sName,updated:d}).eq("id",oid);}
     }catch(e){}
     setOrders(prev=>prev.map(o=>assignSelected.includes(o.id)?{...o,supplier:sName,updated:d}:o));
-    setShowAssign(false);setAssignSup("");setAssignSelected([]);showT(t.ordersAssigned);
+    setShowAssign(false);setAssignSup("");setAssignSelected([]);setSelectedOrderIds([]);showT(t.ordersAssigned);
   };
 
   const addSupPay=async(sid,amt,ref,note)=>{
@@ -420,7 +498,7 @@ export default function App(){
         +'<table><thead><tr>'+aCols.map(k=>'<th>'+cLabels[k]+'</th>').join('')+'</tr></thead><tbody>'+data.map(o=>'<tr>'+aCols.map(k=>'<td>'+cv(o,k)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
     } else {
       const o=data;
-      body='<div class="g2"><div><div class="st">'+t.customerInfo+'</div>'+[[t.name,o.customer||"--"],[t.phone,o.phone],[t.orderDate,o.date]].map(([k,v])=>'<div class="row"><span>'+k+'</span><span>'+v+'</span></div>').join('')+'</div><div><div class="st">'+t.financialSummary+'</div>'+[[t.jackets,o.jackets],[t.total,fmt(o.total)],[t.paid,fmt(o.paid)],[t.supplier,o.supplier||t.unassigned]].map(([k,v])=>'<div class="row"><span>'+k+'</span><span>'+v+'</span></div>').join('')+'<div class="bal"><span>'+t.remainingBalance+'</span><span style="color:'+(o.total-o.paid>0?'#E05E5C':'#2D7A4F')+'">'+fmt(o.total-o.paid)+'</span></div></div></div>'+'<div class="st" style="margin-top:20px">'+t.paymentHistory+'</div>'+(o.payments.length===0?'<p style="color:#94A3B8">'+t.noPayments+'</p>':'<table><thead><tr><th>#</th><th>'+t.date+'</th><th>'+t.total+'</th><th>'+t.refNumber+'</th><th>'+t.recordedBy+'</th></tr></thead><tbody>'+o.payments.map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+p.date+'</td><td style="color:#2D7A4F;font-weight:700">'+fmt(p.amount)+'</td><td>'+(p.ref||'--')+'</td><td>'+p.by+'</td></tr>').join('')+'</tbody></table>');
+      body='<div class="g2"><div><div class="st">'+t.customerInfo+'</div>'+[[t.name,o.customer||"--"],[t.phone,o.phone],[t.orderDate,o.date]].map(([k,v])=>'<div class="row"><span>'+k+'</span><span>'+v+'</span></div>').join('')+'</div><div><div class="st">'+t.financialSummary+'</div>'+[[t.jackets,o.jackets],[t.total,fmt(o.total)],[t.paid,fmt(o.paid)]].map(([k,v])=>'<div class="row"><span>'+k+'</span><span>'+v+'</span></div>').join('')+'<div class="bal"><span>'+t.remainingBalance+'</span><span style="color:'+(o.total-o.paid>0?'#E05E5C':'#2D7A4F')+'">'+fmt(o.total-o.paid)+'</span></div></div></div>'+'<div class="st" style="margin-top:20px">'+t.paymentHistory+'</div>'+(o.payments.length===0?'<p style="color:#94A3B8">'+t.noPayments+'</p>':'<table><thead><tr><th>#</th><th>'+t.date+'</th><th>'+t.total+'</th><th>'+t.refNumber+'</th><th>'+t.recordedBy+'</th></tr></thead><tbody>'+o.payments.map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+p.date+'</td><td style="color:#2D7A4F;font-weight:700">'+fmt(p.amount)+'</td><td>'+(p.ref||'--')+'</td><td>'+p.by+'</td></tr>').join('')+'</tbody></table>');
     }
     w.document.write('<!DOCTYPE html><html dir="'+dir+'"><head><meta charset="utf-8"><title>'+title+'</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'+ff+'system-ui,sans-serif;color:#1E293B;padding:32px;direction:'+dir+'}.header{display:flex;justify-content:space-between;padding-bottom:16px;border-bottom:3px solid #202F4D;margin-bottom:24px}.brand{font-size:26px;font-weight:900;color:#E05E5C}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}.kpi{background:#F8F9FA;border:1px solid #E2E8F0;border-radius:8px;padding:12px;text-align:center}.kpi b{display:block;font-size:18px}.kpi small{font-size:10px;color:#64748B}table{width:100%;border-collapse:collapse;font-size:11px}th{background:#202F4D;color:#fff;padding:8px 10px;text-align:'+(rtl?'right':'left')+'}td{padding:7px 10px;border-bottom:1px solid #F1F5F9}tr:nth-child(even) td{background:#FAFAFA}.g2{display:grid;grid-template-columns:1fr 1fr;gap:20px}.st{font-size:11px;font-weight:800;text-transform:uppercase;color:#64748B;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #E2E8F0}.row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #F8F9FA;font-size:12px}.bal{display:flex;justify-content:space-between;padding:8px 0;border-top:2px solid #202F4D;margin-top:6px;font-weight:800}.footer{margin-top:28px;text-align:center;font-size:10px;color:#94A3B8;border-top:1px solid #E2E8F0;padding-top:12px}@media print{.np{display:none!important}}</style></head><body><div class="header"><div><div class="brand">'+t.brand+'</div><div style="font-size:12px;color:#64748B">'+t.brandSub+'</div></div><div style="text-align:'+(rtl?'left':'right')+'"><div style="font-size:14px;font-weight:700">'+title+'</div><div style="font-size:12px;color:#64748B">'+new Date().toLocaleDateString()+'</div></div></div>'+body+'<div class="footer">'+t.printFooter+'</div><div class="np" style="margin-top:20px;text-align:center"><button onclick="window.print()" style="background:#202F4D;color:#fff;border:none;padding:10px 28px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer">'+(rtl?'طباعة':'Print / Save PDF')+'</button></div></body></html>');
     w.document.close();
@@ -559,15 +637,26 @@ export default function App(){
             <select value={fSup} onChange={e=>setFSup(e.target.value)} style={{...IS,width:"auto"}}><option value="">{t.allSuppliers}</option>{suppliers.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select>
             <span style={{alignSelf:"center",fontSize:13,color:tm}}>{filtOrd.length} {t.ordersFound}</span>
           </div>
+          {selectedOrderIds.length>0&&<div style={{background:"#EEF2FF",border:"1px solid #6366F1",borderRadius:10,padding:"10px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+            <span style={{fontSize:13,fontWeight:700,color:"#6366F1"}}>{rtl?`${selectedOrderIds.length} طلب محدد`:`${selectedOrderIds.length} orders selected`}</span>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {can("suppliers")&&<button onClick={()=>{setAssignSelected(selectedOrderIds);setShowAssign(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🏭 {rtl?"إسناد لمورد":"Assign Supplier"}</button>}
+              {can("orders")&&<button onClick={()=>setShowBulkActions(true)} style={{background:"#0EA5E9",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔄 {rtl?"تغيير الحالة":"Change Status"}</button>}
+              {currentUser.role==="admin"&&<button onClick={async()=>{if(!window.confirm(rtl?`حذف ${selectedOrderIds.length} طلب؟ لا يمكن التراجع.`:`Delete ${selectedOrderIds.length} orders? Cannot be undone.`))return;try{await supabase.from("orders").delete().in("id",selectedOrderIds);}catch(e){}setOrders(prev=>prev.filter(o=>!selectedOrderIds.includes(o.id)));setSelectedOrderIds([]);showT(rtl?"تم الحذف!":"Deleted!");}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 {rtl?"حذف":"Delete"}</button>}
+              <button onClick={()=>setSelectedOrderIds([])} style={{background:"transparent",border:"1px solid #6366F1",color:"#6366F1",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {rtl?"إلغاء التحديد":"Clear"}</button>
+            </div>
+          </div>}
           <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                  <th style={{padding:"12px 14px",width:36}}><input type="checkbox" checked={filtOrd.length>0&&selectedOrderIds.length===filtOrd.length} onChange={e=>setSelectedOrderIds(e.target.checked?filtOrd.map(o=>o.id):[])} style={{width:16,height:16,cursor:"pointer"}}/></th>
                   {[t.orderNum,t.customer,t.phone,t.date,t.jackets,t.total,t.paid,t.balance,t.status,t.supplier,t.actions].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {filtOrd.map((o,i)=>(
-                    <tr key={o.id} style={{borderTop:"1px solid "+bc,background:i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
+                    <tr key={o.id} style={{borderTop:"1px solid "+bc,background:selectedOrderIds.includes(o.id)?"#EEF2FF":i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
+                      <td style={{padding:"12px 14px"}}><input type="checkbox" checked={selectedOrderIds.includes(o.id)} onChange={e=>setSelectedOrderIds(p=>e.target.checked?[...p,o.id]:p.filter(x=>x!==o.id))} style={{width:16,height:16,cursor:"pointer"}}/></td>
                       <td style={{padding:"12px 14px",fontWeight:700,color:"#E05E5C"}}>{o.id}</td>
                       <td style={{padding:"12px 14px",fontWeight:600}}>{o.customer||"--"}</td>
                       <td style={{padding:"12px 14px",color:tm}}>{o.phone}</td>
@@ -603,6 +692,7 @@ export default function App(){
               <Badge status={o.status}/>
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
               {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total)});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
+              {currentUser.role==="admin"&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}
             </div>
             <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20,overflowX:"auto"}}>
@@ -1041,7 +1131,7 @@ export default function App(){
           </div>
           <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
             <button onClick={()=>setShowNew(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={saveOrd} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{t.createOrderBtn}</button>
+            <button disabled={savingOrder} onClick={saveOrd} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:savingOrder?"not-allowed":"pointer",opacity:savingOrder?0.6:1}}>{savingOrder?(rtl?"جارٍ الحفظ...":"Saving..."):t.createOrderBtn}</button>
           </div>
         </div>
       </div>}
@@ -1334,6 +1424,52 @@ export default function App(){
         </div>
       </div>}
 
+      {/* RENUMBER ORDER MODAL */}
+      {showRenumber&&renumberTarget&&(()=>{
+        const info=extractOrderNum(renumberTarget.id);
+        return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!renumbering&&(setShowRenumber(false),setRenumberTarget(null))}>
+          <div style={{background:bgC,borderRadius:16,padding:28,width:400,maxWidth:"90vw"}}>
+            <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>🔢 {rtl?"تعديل رقم الطلب":"Renumber Order"}</h2>
+            <p style={{color:tm,fontSize:13,margin:"0 0 16px"}}>{rtl?"الرقم الحالي:":"Current ID:"} <b style={{color:"#E05E5C"}}>{renumberTarget.id}</b></p>
+            {!info?<p style={{color:"#E05E5C",fontSize:13}}>{rtl?"رقم هذا الطلب لا يطابق صيغة الترقيم الحالية، لا يمكن تعديله بهذه الطريقة.":"This order's ID doesn't match the current numbering format, can't renumber this way."}</p>:<>
+              <div style={{background:"#FFF7ED",border:"1px solid #FDE68A",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:12,color:"#92400E"}}>
+                {rtl?"تنبيه: الطلبات بين الرقم القديم والجديد ستنزاح تلقائياً عشان تبقى متسلسلة.":"Note: orders between the old and new number will shift automatically to stay sequential."}
+              </div>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"الرقم الجديد":"New Number"}</label>
+              <input type="number" value={renumberValue} onChange={e=>setRenumberValue(e.target.value)} style={IS}/>
+              <div style={{fontSize:11,color:tm,marginTop:6}}>{rtl?"المعاينة:":"Preview:"} <b style={{fontFamily:"monospace",color:"#202F4D"}}>{renumberValue?buildOrderId(Number(renumberValue),info.width,info.prefix,info.suffix):"--"}</b></div>
+            </>}
+            <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
+              <button disabled={renumbering} onClick={()=>{setShowRenumber(false);setRenumberTarget(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"9px 18px",cursor:renumbering?"not-allowed":"pointer",color:tp,opacity:renumbering?0.5:1}}>{t.cancel}</button>
+              {info&&<button disabled={renumbering||!renumberValue} onClick={()=>renumberOrder(renumberTarget.id,Number(renumberValue))} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 22px",fontWeight:700,cursor:renumbering?"not-allowed":"pointer",opacity:renumbering?0.6:1}}>{renumbering?(rtl?"جارٍ التحديث...":"Updating..."):(rtl?"تأكيد":"Confirm")}</button>}
+            </div>
+          </div>
+        </div>;
+      })()}
+
+      {/* BULK STATUS CHANGE MODAL */}
+      {showBulkActions&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowBulkActions(false)}>
+        <div style={{background:bgC,borderRadius:16,padding:28,width:380,maxWidth:"90vw"}}>
+          <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>🔄 {rtl?"تغيير حالة الطلبات":"Change Orders Status"}</h2>
+          <p style={{color:tm,fontSize:13,margin:"0 0 16px"}}>{rtl?`${selectedOrderIds.length} طلب محدد`:`${selectedOrderIds.length} orders selected`}</p>
+          <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:320,overflowY:"auto"}}>
+            {t.statuses.map((sName,i)=>{
+              const sid=i+1,s2=sc(sid);
+              return <button key={sid} onClick={async()=>{
+                const d=new Date().toISOString().slice(0,10);
+                try{await supabase.from("orders").update({status:sid,updated:d}).in("id",selectedOrderIds);}catch(e){}
+                setOrders(prev=>prev.map(o=>selectedOrderIds.includes(o.id)?{...o,status:sid,updated:d}:o));
+                setShowBulkActions(false);setSelectedOrderIds([]);
+                showT(rtl?"تم تحديث الحالة!":"Status updated!");
+              }} style={{display:"flex",alignItems:"center",gap:8,background:s2.bg,color:s2.color,border:"none",borderRadius:8,padding:"10px 14px",fontWeight:700,cursor:"pointer",fontSize:13,textAlign:"left"}}>
+                <span style={{width:8,height:8,borderRadius:"50%",background:s2.color}}/>{sName}
+              </button>;
+            })}
+          </div>
+          <button onClick={()=>setShowBulkActions(false)} style={{width:"100%",marginTop:16,border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"9px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+        </div>
+      </div>}
+
       {/* PRINT MODAL */}
       {showPrint&&printO&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowPrint(false),setPrintO(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:500,maxWidth:"95vw",maxHeight:"88vh",overflowY:"auto"}}>
@@ -1359,7 +1495,7 @@ export default function App(){
               </div>
               <div>
                 <div style={{fontSize:10,fontWeight:800,textTransform:"uppercase",color:C.slate,marginBottom:7}}>{t.financialSummary}</div>
-                {[[t.jackets,printO.jackets],[t.total,fmt(printO.total)],[t.paid,fmt(printO.paid)],[t.supplier,printO.supplier||t.unassigned]].map(([k,v])=>(
+                {[[t.jackets,printO.jackets],[t.total,fmt(printO.total)],[t.paid,fmt(printO.paid)]].map(([k,v])=>(
                   <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12,borderBottom:"1px solid #E2E8F0"}}><span style={{color:C.slate}}>{k}</span><span style={{fontWeight:600}}>{v}</span></div>
                 ))}
                 <div style={{display:"flex",justifyContent:"space-between",padding:"6px 0",marginTop:4,borderTop:"2px solid #202F4D"}}>
