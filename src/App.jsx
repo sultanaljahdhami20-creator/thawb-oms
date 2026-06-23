@@ -111,6 +111,7 @@ export default function App(){
   const [importRows,setImportRows]=useState([]);
   const [importing,setImporting]=useState(false);
   const [savingOrder,setSavingOrder]=useState(false);
+  const [dupWarning,setDupWarning]=useState(null);
   const [selectedOrderIds,setSelectedOrderIds]=useState([]);
   const [showBulkActions,setShowBulkActions]=useState(false);
   const [showRenumber,setShowRenumber]=useState(false);
@@ -142,6 +143,7 @@ export default function App(){
         const {data:ords}=await supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false});
         const {data:sups}=await supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false});
         const {data:usrs}=await supabase.from("users").select("*").order("created_at",{ascending:true});
+        const {data:sett}=await supabase.from("settings").select("*").eq("id","main").single();
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
@@ -162,6 +164,20 @@ export default function App(){
             perms:u.perms||{orders:true,payments:true,reports:false,suppliers:false,users:false},
             dashboard:u.dashboard!==false
           })));
+        }
+        if(sett){
+          const loadedSettings={
+            cycleYear:sett.cycle_year,
+            cycleLabel:sett.cycle_label,
+            invoicePrefix:sett.invoice_prefix,
+            invoiceFormat:sett.invoice_format,
+            nextOrderNum:sett.next_order_num,
+            securityPin:sett.security_pin||"",
+            requirePinForDelete:sett.require_pin_for_delete||false,
+            requirePinForPayment:sett.require_pin_for_payment||false,
+          };
+          setSettings(loadedSettings);
+          setSettingsForm(loadedSettings);
         }
       }catch(e){console.log("Supabase not connected, using local data");}
       setLoading(false);
@@ -213,18 +229,41 @@ export default function App(){
     if(k==="status")return sl(o.status);if(k==="supplier")return o.supplier||"--";return "";
   };
 
+  // ── Settings persistence
+  const saveSettingsToDb=async(newSettings)=>{
+    try{
+      await supabase.from("settings").update({
+        cycle_year:newSettings.cycleYear,
+        cycle_label:newSettings.cycleLabel,
+        invoice_prefix:newSettings.invoicePrefix,
+        invoice_format:newSettings.invoiceFormat,
+        next_order_num:newSettings.nextOrderNum,
+        security_pin:newSettings.securityPin,
+        require_pin_for_delete:newSettings.requirePinForDelete,
+        require_pin_for_payment:newSettings.requirePinForPayment,
+      }).eq("id","main");
+    }catch(e){console.log("Settings save error",e);}
+  };
+
   // ── Order actions
   const genOrderId=()=>{
     const num=String(settings.nextOrderNum).padStart(3,"0");
     return settings.invoiceFormat.replace("{prefix}",settings.invoicePrefix).replace("{year}",settings.cycleYear).replace("{num}",num);
   };
 
-  const saveOrd=async()=>{
+  const saveOrd=async(force)=>{
     if(savingOrder)return;
     if(!newO.phone||!newO.jackets||!newO.total){showT(t.fillRequired,"error");return;}
+    if(!force){
+      const today=new Date().toISOString().slice(0,10);
+      const dup=orders.find(o=>o.phone===newO.phone&&o.total===Number(newO.total)&&o.date===today);
+      if(dup){setDupWarning(dup);return;}
+    }
     setSavingOrder(true);
     const id=genOrderId();
-    setSettings(s=>({...s,nextOrderNum:s.nextOrderNum+1}));
+    const newNextNum=settings.nextOrderNum+1;
+    setSettings(s=>({...s,nextOrderNum:newNextNum}));
+    saveSettingsToDb({...settings,nextOrderNum:newNextNum});
     const orderData={id,customer:newO.customer,phone:newO.phone,order_type:newO.orderType,date:new Date().toISOString().slice(0,10),jackets:Number(newO.jackets)||0,total:Number(newO.total)||0,paid:Number(newO.paid)||0,status:1,supplier:"",updated:new Date().toISOString().slice(0,10),history:[]};
     const newOrderObj={...orderData,orderType:newO.orderType,payments:Number(newO.paid)>0?[{date:new Date().toISOString().slice(0,10),amount:Number(newO.paid),by:currentUser?.name||"Admin",ref:"",note:"Initial"}]:[]};
     try{
@@ -235,7 +274,7 @@ export default function App(){
     }catch(e){console.log("Supabase error",e);}
     setOrders(prev=>[newOrderObj,...prev]);
     setNewO({customer:"",phone:"",jackets:"",total:"",paid:"",orderType:""});setShowNew(false);showT(t.orderCreated);
-    setSavingOrder(false);
+    setSavingOrder(false);setDupWarning(null);
   };
 
   // ── Excel Import
@@ -287,6 +326,7 @@ export default function App(){
       newOrders.push({...orderData,orderType:row.orderType,payments:row.paid>0?[{date:d,amount:row.paid,by:currentUser?.name||"Admin",ref:"",note:"Initial (Import)"}]:[]});
     }
     setSettings(s=>({...s,nextOrderNum:numStart}));
+    saveSettingsToDb({...settings,nextOrderNum:numStart});
     setOrders(prev=>[...newOrders,...prev]);
     setImporting(false);setShowImport(false);setImportRows([]);
     showT(rtl?`تم استيراد ${newOrders.length} طلب!`:`Imported ${newOrders.length} orders!`);
@@ -1049,14 +1089,16 @@ export default function App(){
                     {settingsForm.invoiceFormat.replace("{prefix}",settingsForm.invoicePrefix).replace("{year}",settingsForm.cycleYear).replace("{num}",String(settingsForm.nextOrderNum).padStart(3,"0"))}
                   </b>
                 </div>
-                <button onClick={()=>{
+                <button onClick={async()=>{
                   if(!window.confirm(rtl?"هل تريد بدء دورة جديدة؟ سيتم إعادة ترقيم الطلبات من 001":"Start new cycle? Order numbering will reset to 001."))return;
-                  setSettings({...settingsForm,nextOrderNum:1});setSettingsForm(p=>({...p,nextOrderNum:1}));
+                  const ns={...settingsForm,nextOrderNum:1};
+                  setSettings(ns);setSettingsForm(ns);
+                  await saveSettingsToDb(ns);
                   showT(rtl?"تم بدء الدورة الجديدة!":"New cycle started!");
                 }} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>
                   🔄 {rtl?"بدء دورة جديدة":"Start New Cycle"}
                 </button>
-                <button onClick={()=>{setSettings(settingsForm);showT(rtl?"تم حفظ الإعدادات!":"Settings saved!");}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>
+                <button onClick={async()=>{setSettings(settingsForm);await saveSettingsToDb(settingsForm);showT(rtl?"تم حفظ الإعدادات!":"Settings saved!");}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>
                   💾 {rtl?"حفظ الإعدادات":"Save Settings"}
                 </button>
               </div>
@@ -1081,7 +1123,7 @@ export default function App(){
                     <input type="checkbox" checked={settingsForm.requirePinForPayment} onChange={e=>setSettingsForm(p=>({...p,requirePinForPayment:e.target.checked}))} style={{width:16,height:16}}/>
                     <div><div style={{fontSize:13,fontWeight:600}}>{rtl?"تأكيد المدفوعات بالـ PIN":"Require PIN for payments"}</div><div style={{fontSize:11,color:tm}}>{rtl?"يطلب الرمز عند تسجيل أي دفعة":"Asks for PIN before recording"}</div></div>
                   </label>
-                  <button onClick={()=>{setSettings(settingsForm);showT(rtl?"تم حفظ إعدادات الأمان!":"Security settings saved!");}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>
+                  <button onClick={async()=>{setSettings(settingsForm);await saveSettingsToDb(settingsForm);showT(rtl?"تم حفظ إعدادات الأمان!":"Security settings saved!");}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>
                     💾 {rtl?"حفظ":"Save"}
                   </button>
                 </div>
@@ -1108,7 +1150,7 @@ export default function App(){
       </main>
 
       {/* NEW ORDER MODAL */}
-      {showNew&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowNew(false)}>
+      {showNew&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowNew(false),setDupWarning(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:480,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{t.createOrder}</h2>
           <div style={{background:C.slateLight,borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1130,8 +1172,26 @@ export default function App(){
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
-            <button onClick={()=>setShowNew(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button disabled={savingOrder} onClick={saveOrd} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:savingOrder?"not-allowed":"pointer",opacity:savingOrder?0.6:1}}>{savingOrder?(rtl?"جارٍ الحفظ...":"Saving..."):t.createOrderBtn}</button>
+            <button onClick={()=>{setShowNew(false);setDupWarning(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+            <button disabled={savingOrder} onClick={()=>saveOrd(false)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:savingOrder?"not-allowed":"pointer",opacity:savingOrder?0.6:1}}>{savingOrder?(rtl?"جارٍ الحفظ...":"Saving..."):t.createOrderBtn}</button>
+          </div>
+        </div>
+      </div>}
+
+      {/* DUPLICATE WARNING MODAL */}
+      {dupWarning&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setDupWarning(null)}>
+        <div style={{background:bgC,borderRadius:16,padding:28,width:420,maxWidth:"90vw",textAlign:"center"}}>
+          <div style={{fontSize:40,marginBottom:10}}>⚠️</div>
+          <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:800,color:"#92400E"}}>{rtl?"يحتمل أن هذا الطلب مكرر":"This order might be a duplicate"}</h2>
+          <p style={{color:tm,fontSize:13,margin:"0 0 14px"}}>{rtl?"يوجد طلب آخر بنفس رقم الهاتف ونفس المبلغ تم تسجيله اليوم:":"There's already an order today with the same phone number and amount:"}</p>
+          <div style={{background:"#FFF7ED",border:"1px solid #FDE68A",borderRadius:8,padding:"12px 16px",marginBottom:20,textAlign:"left",fontSize:13}}>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}><span style={{color:tm}}>{t.orderNum}</span><b style={{color:"#E05E5C"}}>{dupWarning.id}</b></div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}><span style={{color:tm}}>{t.customer}</span><b>{dupWarning.customer||dupWarning.phone}</b></div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}><span style={{color:tm}}>{t.total}</span><b>{fmt(dupWarning.total)}</b></div>
+          </div>
+          <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+            <button onClick={()=>setDupWarning(null)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp,fontWeight:600}}>{rtl?"رجوع وتعديل":"Go Back"}</button>
+            <button disabled={savingOrder} onClick={()=>saveOrd(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:savingOrder?"not-allowed":"pointer",opacity:savingOrder?0.6:1}}>{savingOrder?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"تأكيد، ليس مكرر":"Confirm, not a duplicate")}</button>
           </div>
         </div>
       </div>}
