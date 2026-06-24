@@ -64,6 +64,8 @@ export default function App(){
   const [orders,setOrders]=useState(SEED_ORDERS);
   const [suppliers,setSuppliers]=useState(SEED_SUPPLIERS);
   const [users,setUsers]=useState(SEED_USERS);
+  const [activityLog,setActivityLog]=useState([]);
+  const [logUserFilter,setLogUserFilter]=useState("");
 
   // ── Orders
   const [selected,setSelected]=useState(null);
@@ -144,6 +146,7 @@ export default function App(){
         const {data:sups}=await supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false});
         const {data:usrs}=await supabase.from("users").select("*").order("created_at",{ascending:true});
         const {data:sett}=await supabase.from("settings").select("*").eq("id","main").single();
+        const {data:logs}=await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(500);
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
@@ -183,12 +186,16 @@ export default function App(){
           setSettings(loadedSettings);
           setSettingsForm(loadedSettings);
         }
+        if(logs)setActivityLog(logs);
         try{
           const savedUserId=localStorage.getItem("thawb_user_id");
           if(savedUserId){
             const pool=loadedUsers||SEED_USERS;
             const restoredUser=pool.find(u=>u.id===savedUserId);
-            if(restoredUser)setCurrentUser(restoredUser);
+            if(restoredUser){
+              setCurrentUser(restoredUser);
+              setPage(restoredUser.role==="admin"||restoredUser.dashboard!==false?"dashboard":"orders");
+            }
             else localStorage.removeItem("thawb_user_id");
           }
         }catch(e){}
@@ -207,11 +214,18 @@ export default function App(){
 
   const can=(perm)=>currentUser?.perms?.[perm]||currentUser?.role==="admin";
 
+  const logActivity=(action,details)=>{
+    const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
+    (async()=>{try{await supabase.from("activity_log").insert({user_id:entry.user_id,user_name:entry.user_name,action,details});}catch(e){}})();
+    setActivityLog(prev=>[entry,...prev]);
+  };
+
   // ── Login
   const doLogin=()=>{
     const u=users.find(x=>x.email===loginEmail&&x.pass===loginPass);
     if(!u){setLoginErr(rtl?"بيانات خاطئة":"Wrong email or password");return;}
     setCurrentUser(u);setLoginErr("");
+    setPage(u.role==="admin"||u.dashboard!==false?"dashboard":"orders");
     try{localStorage.setItem("thawb_user_id",u.id);}catch(e){}
   };
 
@@ -287,6 +301,7 @@ export default function App(){
       }
     }catch(e){console.log("Supabase error",e);}
     setOrders(prev=>[newOrderObj,...prev]);
+    logActivity(rtl?"طلب جديد":"New order",`${id} — ${newO.customer||newO.phone} — ${fmt(Number(newO.total)||0)}`);
     setNewO({customer:"",phone:"",jackets:"",total:"",paid:"",orderType:"",extras:"",deliveryArea:""});setShowNew(false);showT(t.orderCreated);
     setSavingOrder(false);setDupWarning(null);
   };
@@ -351,6 +366,7 @@ export default function App(){
   const deleteOrder=async(id)=>{
     try{await supabase.from("orders").delete().eq("id",id);}catch(e){}
     setOrders(prev=>prev.filter(o=>o.id!==id));
+    logActivity(rtl?"حذف طلب":"Order deleted",id);
     setShowDeleteOrder(false);setDeleteOrderTarget(null);
     if(selected?.id===id){setSelected(null);setPage("orders");}
     showT(t.orderDeleted);
@@ -433,6 +449,7 @@ export default function App(){
       await supabase.from("orders").update({paid:(cur?.paid||0)+amt,updated:d}).eq("id",oid);
     }catch(e){}
     setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid+amt,updated:d,payments:[...o.payments,newPay]}));
+    logActivity(rtl?"دفعة جديدة":"New payment",`${oid} — ${fmt(amt)}`);
     showT(t.paymentSaved);setShowPay(false);setPayTarget(null);
   };
 
@@ -440,6 +457,7 @@ export default function App(){
     const d=new Date().toISOString().slice(0,10);
     try{await supabase.from("orders").update({status:ns,updated:d}).eq("id",oid);}catch(e){}
     setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,status:ns,updated:d}));
+    logActivity(rtl?"تحديث حالة":"Status update",`${oid} → ${sl(ns)}`);
     showT(rtl?"تم تحديث الحالة!":"Status updated!");
   };
 
@@ -480,6 +498,7 @@ export default function App(){
     const d=new Date().toISOString().slice(0,10);
     try{await supabase.from("supplier_payments").insert({supplier_id:sid,amount:amt,ref,note,by:currentUser?.name||"Admin",date:d});}catch(e){}
     setSuppliers(prev=>prev.map(s=>s.id!==sid?s:{...s,payments:[...(s.payments||[]),{date:d,amount:amt,ref,note,by:currentUser?.name||"Admin"}]}));
+    logActivity(rtl?"دفعة مورد":"Supplier payment",`${suppliers.find(s=>s.id===sid)?.name||sid} — ${fmt(amt)}`);
     showT(t.paymentSaved);setShowSupPay(false);setSupPayTarget(null);
   };
 
@@ -532,6 +551,7 @@ export default function App(){
       updated:new Date().toISOString().slice(0,10),
       history:[...(x.history||[]),...(historyEntry?[historyEntry]:[])]
     }));
+    if(changes.length>0)logActivity(rtl?"تعديل طلب":"Order edited",`${o.id} — ${changes.join(" | ")}`);
     setShowEditOrder(false);setEditOrderTarget(null);
     showT(rtl?"تم تحديث الطلب!":"Order updated!");
   };
@@ -641,7 +661,7 @@ export default function App(){
             {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
           </div>
           <div className="stats-row" style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:24}}>
-            {[{l:t.totalOrders,v:orders.length,i:"📦",c:"#202F4D"},{l:t.totalSales,v:fmt(totSales),i:"💰",c:"#202F4D"},{l:t.collected,v:fmt(totPaid),i:"✅",c:"#2D7A4F"},{l:t.outstanding,v:fmt(totSales-totPaid),i:"⏳",c:"#E05E5C"}].map(s=>(
+            {[{l:t.totalOrders,v:orders.length,i:"📦",c:"#202F4D"},...(currentUser.role==="admin"?[{l:t.totalSales,v:fmt(totSales),i:"💰",c:"#202F4D"},{l:t.collected,v:fmt(totPaid),i:"✅",c:"#2D7A4F"},{l:t.outstanding,v:fmt(totSales-totPaid),i:"⏳",c:"#E05E5C"}]:[])].map(s=>(
               <div key={s.l} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:"20px 24px",flex:1,minWidth:150}}>
                 <div style={{fontSize:12,color:C.slate,fontWeight:600,marginBottom:8}}>{s.i} {s.l}</div>
                 <div style={{fontSize:26,fontWeight:800,color:s.c}}>{s.v}</div>
@@ -1162,6 +1182,39 @@ export default function App(){
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+
+          {/* Activity Log */}
+          <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24,marginTop:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <h3 style={{margin:0,fontSize:15,fontWeight:800}}>🕒 {rtl?"سجل العمليات":"Activity Log"}</h3>
+              <select value={logUserFilter} onChange={e=>setLogUserFilter(e.target.value)} style={{...IS,width:200}}>
+                <option value="">{rtl?"كل المستخدمين":"All Users"}</option>
+                {users.map(u=><option key={u.id} value={u.name}>{u.name}</option>)}
+              </select>
+            </div>
+            <div style={{maxHeight:400,overflowY:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr style={{background:C.slateLight}}>
+                  {[rtl?"التاريخ والوقت":"Date & Time",rtl?"المستخدم":"User",rtl?"العملية":"Action",rtl?"التفاصيل":"Details"].map(h=>
+                    <th key={h} style={{padding:"8px 10px",textAlign:rtl?"right":"left",color:C.slate,fontWeight:700,position:"sticky",top:0,background:C.slateLight}}>{h}</th>
+                  )}
+                </tr></thead>
+                <tbody>
+                  {activityLog.filter(l=>!logUserFilter||l.user_name===logUserFilter).length===0?
+                    <tr><td colSpan={4} style={{padding:"16px",textAlign:"center",color:tm}}>{rtl?"لا توجد عمليات مسجلة":"No activity recorded yet"}</td></tr>:
+                    activityLog.filter(l=>!logUserFilter||l.user_name===logUserFilter).map((l,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid "+bc}}>
+                        <td style={{padding:"8px 10px",color:tm,whiteSpace:"nowrap"}}>{new Date(l.created_at).toLocaleString(rtl?"ar-OM":"en-GB")}</td>
+                        <td style={{padding:"8px 10px",fontWeight:600}}>{l.user_name}</td>
+                        <td style={{padding:"8px 10px"}}>{l.action}</td>
+                        <td style={{padding:"8px 10px",color:tm}}>{l.details}</td>
+                      </tr>
+                    ))
+                  }
+                </tbody>
+              </table>
             </div>
           </div>
         </div>}
