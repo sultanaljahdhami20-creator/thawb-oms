@@ -35,6 +35,9 @@ const SEED_USERS=[
 
 const ORDER_TYPES_EN=["Cotton Full","Full Leather","Cotton & Leather","Hoodie","Mix"];
 const ORDER_TYPES_AR=["قطن كامل","جلد كامل","قطن وجلد","هودي","مكس"];
+const EXPENSE_CATS_AR=["رواتب الموظفين","إيجار المصنع / المحل","مواد خام","مصاريف شحن وتوصيل","فواتير (كهرباء، نت...)","تسويق وإعلانات","مصاريف متنوعة"];
+const EXPENSE_CATS_EN=["Staff Salaries","Factory / Shop Rent","Raw Materials","Shipping & Delivery","Utilities","Marketing & Ads","Miscellaneous"];
+const EXPENSE_ICONS=["👤","🏭","🧵","🚚","💡","📣","📦"];
 
 const SEED_SETTINGS={
   cycleYear:"2026",
@@ -66,6 +69,12 @@ export default function App(){
   const [users,setUsers]=useState(SEED_USERS);
   const [activityLog,setActivityLog]=useState([]);
   const [logUserFilter,setLogUserFilter]=useState("");
+  const [expenses,setExpenses]=useState([]);
+  const [showNewExp,setShowNewExp]=useState(false);
+  const [newExp,setNewExp]=useState({date:"",category:"",amount:"",note:""});
+  const [expCatFilter,setExpCatFilter]=useState("");
+  const [expDateFrom,setExpDateFrom]=useState("");
+  const [expDateTo,setExpDateTo]=useState("");
 
   // ── Orders
   const [selected,setSelected]=useState(null);
@@ -147,6 +156,7 @@ export default function App(){
         const {data:usrs}=await supabase.from("users").select("*").order("created_at",{ascending:true});
         const {data:sett}=await supabase.from("settings").select("*").eq("id","main").single();
         const {data:logs}=await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(500);
+        const {data:exps}=await supabase.from("expenses").select("*").order("date",{ascending:false});
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
@@ -187,6 +197,7 @@ export default function App(){
           setSettingsForm(loadedSettings);
         }
         if(logs)setActivityLog(logs);
+        if(exps)setExpenses(exps);
         try{
           const savedUserId=localStorage.getItem("thawb_user_id");
           if(savedUserId){
@@ -213,6 +224,23 @@ export default function App(){
   const showT=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
   const can=(perm)=>currentUser?.perms?.[perm]||currentUser?.role==="admin";
+
+  const saveExpense=async()=>{
+    if(!newExp.date||!newExp.category||!newExp.amount){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
+    const entry={date:newExp.date,category:newExp.category,amount:Number(newExp.amount),note:newExp.note,by:currentUser?.name||"Admin",created_at:new Date().toISOString()};
+    try{const {data}=await supabase.from("expenses").insert(entry).select().single();if(data)entry.id=data.id;}catch(e){}
+    setExpenses(prev=>[entry,...prev]);
+    logActivity(rtl?"مصروف جديد":"New expense",`${newExp.category} — ${fmt(Number(newExp.amount))}`);
+    setNewExp({date:"",category:"",amount:"",note:""});setShowNewExp(false);
+    showT(rtl?"تم تسجيل المصروف!":"Expense saved!");
+  };
+
+  const deleteExpense=async(exp)=>{
+    if(!window.confirm(rtl?"حذف هذا المصروف؟":"Delete this expense?"))return;
+    try{await supabase.from("expenses").delete().eq("id",exp.id);}catch(e){}
+    setExpenses(prev=>prev.filter(e=>e.id!==exp.id));
+    showT(rtl?"تم الحذف":"Deleted");
+  };
 
   const logActivity=(action,details)=>{
     const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
@@ -649,6 +677,7 @@ export default function App(){
         {NI("suppliers","🏭",t.suppliers,!can("suppliers"))}
         {NI("reports","📈",t.reports,!can("reports"))}
         {NI("users","👥",t.users,currentUser.role!=="admin")}
+        {currentUser.role==="admin"&&NI("expenses","💸",rtl?"المصاريف":"Expenses")}
         {currentUser.role==="admin"&&NI("settings","⚙️",rtl?"الإعدادات":"Settings")}
         <div style={{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.1)",paddingTop:12,display:"flex",flexDirection:"column",gap:4}}>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"rgba(255,255,255,0.08)",borderRadius:8,color:"#fff",fontSize:13,fontWeight:700}}>🌐 {lang==="en"?"العربية":"English"}</button>
@@ -1097,6 +1126,109 @@ export default function App(){
             ))}
           </div>
         </div>}
+        {/* EXPENSES */}
+        {page==="expenses"&&currentUser.role==="admin"&&(()=>{
+          const expCats=rtl?EXPENSE_CATS_AR:EXPENSE_CATS_EN;
+          const filtExps=expenses.filter(e=>{
+            if(expCatFilter&&e.category!==expCatFilter)return false;
+            if(expDateFrom&&e.date<expDateFrom)return false;
+            if(expDateTo&&e.date>expDateTo)return false;
+            return true;
+          });
+          const totFiltered=filtExps.reduce((s,e)=>s+e.amount,0);
+          const totAll=expenses.reduce((s,e)=>s+e.amount,0);
+          const byCategory=EXPENSE_CATS_EN.map((cat,i)=>({
+            cat:rtl?EXPENSE_CATS_AR[i]:cat,
+            icon:EXPENSE_ICONS[i],
+            total:expenses.filter(e=>e.category===cat).reduce((s,e)=>s+e.amount,0)
+          })).filter(c=>c.total>0).sort((a,b)=>b.total-a.total);
+          return <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24,flexWrap:"wrap",gap:12}}>
+              <h1 style={{fontSize:22,fontWeight:800,margin:0}}>💸 {rtl?"المصاريف التشغيلية":"Operational Expenses"}</h1>
+              <button onClick={()=>{setNewExp({date:new Date().toISOString().slice(0,10),category:"",amount:"",note:""});setShowNewExp(true);}} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>+ {rtl?"مصروف جديد":"New Expense"}</button>
+            </div>
+
+            {/* بطاقات الملخص */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:24}}>
+              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                <div style={{fontSize:12,color:tm,marginBottom:6}}>{rtl?"إجمالي المصاريف":"Total Expenses"}</div>
+                <div style={{fontSize:24,fontWeight:900,color:"#E05E5C"}}>{fmt(totAll)}</div>
+              </div>
+              {byCategory.slice(0,4).map(c=>(
+                <div key={c.cat} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{fontSize:12,color:tm,marginBottom:6}}>{c.icon} {c.cat}</div>
+                  <div style={{fontSize:20,fontWeight:800,color:tp}}>{fmt(c.total)}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* فلاتر */}
+            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:16,marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+              <select value={expCatFilter} onChange={e=>setExpCatFilter(e.target.value)} style={{...IS,width:"auto"}}>
+                <option value="">{rtl?"جميع التصنيفات":"All Categories"}</option>
+                {EXPENSE_CATS_EN.map((cat,i)=><option key={i} value={cat}>{rtl?EXPENSE_CATS_AR[i]:cat}</option>)}
+              </select>
+              <input type="date" value={expDateFrom} onChange={e=>setExpDateFrom(e.target.value)} style={{...IS,width:"auto"}} placeholder={rtl?"من تاريخ":"From"}/>
+              <input type="date" value={expDateTo} onChange={e=>setExpDateTo(e.target.value)} style={{...IS,width:"auto"}} placeholder={rtl?"إلى تاريخ":"To"}/>
+              {(expCatFilter||expDateFrom||expDateTo)&&<button onClick={()=>{setExpCatFilter("");setExpDateFrom("");setExpDateTo("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm,fontSize:13}}>{rtl?"مسح":"Clear"}</button>}
+              {(expCatFilter||expDateFrom||expDateTo)&&<span style={{fontSize:13,color:tm,marginRight:"auto"}}>{rtl?"الإجمالي المفلتر:":"Filtered total:"} <b style={{color:"#E05E5C"}}>{fmt(totFiltered)}</b></span>}
+            </div>
+
+            {/* جدول المصاريف */}
+            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr style={{background:C.slateLight}}>
+                  {[rtl?"التاريخ":"Date",rtl?"التصنيف":"Category",rtl?"المبلغ (ر.ع)":"Amount (OMR)",rtl?"ملاحظة":"Note",rtl?"سجّل بواسطة":"By",""].map(h=>(
+                    <th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:tm,whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {filtExps.length===0?<tr><td colSpan={6} style={{padding:"24px",textAlign:"center",color:tm}}>{rtl?"لا توجد مصاريف":"No expenses found"}</td></tr>:
+                  filtExps.map((e,i)=>{
+                    const catIdx=EXPENSE_CATS_EN.indexOf(e.category);
+                    return <tr key={i} style={{borderTop:"1px solid "+bc}}>
+                      <td style={{padding:"12px 14px",fontFamily:"monospace",fontSize:12}}>{e.date}</td>
+                      <td style={{padding:"12px 14px"}}><span style={{background:C.slateLight,padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:600}}>{EXPENSE_ICONS[catIdx]||"📦"} {rtl&&catIdx>=0?EXPENSE_CATS_AR[catIdx]:e.category}</span></td>
+                      <td style={{padding:"12px 14px",fontWeight:800,color:"#E05E5C"}}>{fmt(e.amount)}</td>
+                      <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.note||"--"}</td>
+                      <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.by}</td>
+                      <td style={{padding:"12px 14px"}}><button onClick={()=>deleteExpense(e)} style={{background:"transparent",border:"none",cursor:"pointer",color:"#E05E5C",fontSize:16}}>🗑️</button></td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* نافذة مصروف جديد */}
+            {showNewExp&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowNewExp(false)}>
+              <div style={{background:bgC,borderRadius:16,padding:32,width:460,maxWidth:"95vw"}}>
+                <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>💸 {rtl?"مصروف جديد":"New Expense"}</h2>
+                <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"التاريخ *":"Date *"}</label>
+                    <input type="date" value={newExp.date} onChange={e=>setNewExp(p=>({...p,date:e.target.value}))} style={IS}/>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"التصنيف *":"Category *"}</label>
+                    <select value={newExp.category} onChange={e=>setNewExp(p=>({...p,category:e.target.value}))} style={IS}>
+                      <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
+                      {EXPENSE_CATS_EN.map((cat,i)=><option key={i} value={cat}>{EXPENSE_ICONS[i]} {rtl?EXPENSE_CATS_AR[i]:cat}</option>)}
+                    </select>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"المبلغ (ر.ع) *":"Amount (OMR) *"}</label>
+                    <input type="number" value={newExp.amount} onChange={e=>setNewExp(p=>({...p,amount:e.target.value}))} placeholder="0.000" style={IS}/>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"ملاحظة":"Note"}</label>
+                    <input value={newExp.note} onChange={e=>setNewExp(p=>({...p,note:e.target.value}))} placeholder={rtl?"مثال: راتب أبريل، إيجار مارس...":"e.g. April salary, March rent..."} style={IS}/>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setShowNewExp(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+                  <button onClick={saveExpense} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ المصروف":"Save Expense"}</button>
+                </div>
+              </div>
+            </div>}
+          </div>;
+        })()}
+
         {/* SETTINGS */}
         {page==="settings"&&currentUser.role==="admin"&&<div>
           <h1 style={{fontSize:22,fontWeight:800,marginBottom:24}}>⚙️ {rtl?"الإعدادات":"System Settings"}</h1>
