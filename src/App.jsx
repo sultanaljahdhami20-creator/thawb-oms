@@ -164,7 +164,9 @@ export default function App(){
             payments:(o.payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
             history:o.history||[],
             extras:Number(o.extras)||0,
-            deliveryArea:o.delivery_area||""
+            deliveryArea:o.delivery_area||"",
+            orderType:o.order_type||o.orderType||"",
+            isUrgent:o.is_urgent||false
           })));
         }
         if(sups&&sups.length>0){
