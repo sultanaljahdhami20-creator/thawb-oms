@@ -129,6 +129,7 @@ export default function App(){
   const [renumberTarget,setRenumberTarget]=useState(null);
   const [renumberValue,setRenumberValue]=useState("");
   const [renumbering,setRenumbering]=useState(false);
+  const [urgentOnly,setUrgentOnly]=useState(false);
 
   // ── Print/Reports
   const [showPrint,setShowPrint]=useState(false);
@@ -242,6 +243,15 @@ export default function App(){
     showT(rtl?"تم الحذف":"Deleted");
   };
 
+  const toggleUrgent=async(o)=>{
+    const val=!o.isUrgent;
+    try{await supabase.from("orders").update({is_urgent:val}).eq("id",o.id);}catch(e){}
+    setOrders(prev=>prev.map(x=>x.id!==o.id?x:{...x,isUrgent:val}));
+    if(selected?.id===o.id)setSelected(s=>({...s,isUrgent:val}));
+    logActivity(val?(rtl?"تعليم مستعجل":"Marked urgent"):(rtl?"إلغاء المستعجل":"Removed urgent"),o.id);
+    showT(val?(rtl?"⚡ تم تعليم الطلب كمستعجل":"⚡ Order marked urgent"):(rtl?"تم إلغاء التعليم":"Urgent removed"));
+  };
+
   const logActivity=(action,details)=>{
     const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
     (async()=>{try{await supabase.from("activity_log").insert({user_id:entry.user_id,user_name:entry.user_name,action,details});}catch(e){}})();
@@ -265,8 +275,8 @@ export default function App(){
   const filtOrd=useMemo(()=>orders.filter(o=>{
     const q=search.toLowerCase();
     return(!q||o.id.toLowerCase().includes(q)||o.customer.toLowerCase().includes(q)||o.phone.includes(q))
-      &&(!fStatus||o.status===fStatus)&&(!fSup||o.supplier===fSup);
-  }),[orders,search,fStatus,fSup]);
+      &&(!fStatus||o.status===fStatus)&&(!fSup||o.supplier===fSup)&&(!urgentOnly||o.isUrgent);
+  }),[orders,search,fStatus,fSup,urgentOnly]);
 
   const rFilt=useMemo(()=>orders.filter(o=>{
     if(rFrom&&o.date<rFrom)return false;if(rTo&&o.date>rTo)return false;
@@ -744,10 +754,14 @@ export default function App(){
               {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
             </div>
           </div>
-          <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.searchPlaceholder} style={{...IS,minWidth:220,width:"auto"}}/>
             <select value={fStatus} onChange={e=>setFStatus(Number(e.target.value))} style={{...IS,width:"auto"}}><option value={0}>{t.allStatuses}</option>{t.statuses.map((s,i)=><option key={i} value={i+1}>{s}</option>)}</select>
             <select value={fSup} onChange={e=>setFSup(e.target.value)} style={{...IS,width:"auto"}}><option value="">{t.allSuppliers}</option>{suppliers.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select>
+            <button onClick={()=>setUrgentOnly(p=>!p)} style={{background:urgentOnly?"#FFF7ED":"transparent",border:"2px solid "+(urgentOnly?"#F97316":bc),borderRadius:8,padding:"7px 14px",cursor:"pointer",color:urgentOnly?"#F97316":tm,fontWeight:urgentOnly?800:500,fontSize:13,display:"flex",alignItems:"center",gap:6}}>
+              ⚡ {rtl?"المستعجلة":"Urgent"}
+              {orders.filter(o=>o.isUrgent).length>0&&<span style={{background:"#F97316",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:800}}>{orders.filter(o=>o.isUrgent).length}</span>}
+            </button>
             <span style={{alignSelf:"center",fontSize:13,color:tm}}>{filtOrd.length} {t.ordersFound}</span>
           </div>
           {selectedOrderIds.length>0&&<div style={{background:"#EEF2FF",border:"1px solid #6366F1",borderRadius:10,padding:"10px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
@@ -768,9 +782,9 @@ export default function App(){
                 </tr></thead>
                 <tbody>
                   {filtOrd.map((o,i)=>(
-                    <tr key={o.id} style={{borderTop:"1px solid "+bc,background:selectedOrderIds.includes(o.id)?"#EEF2FF":i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
+                    <tr key={o.id} style={{borderTop:"1px solid "+bc,background:selectedOrderIds.includes(o.id)?"#EEF2FF":o.isUrgent?"#FFF7ED":i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
                       <td style={{padding:"12px 14px"}}><input type="checkbox" checked={selectedOrderIds.includes(o.id)} onChange={e=>setSelectedOrderIds(p=>e.target.checked?[...p,o.id]:p.filter(x=>x!==o.id))} style={{width:16,height:16,cursor:"pointer"}}/></td>
-                      <td style={{padding:"12px 14px",fontWeight:700,color:"#E05E5C"}}>{o.id}</td>
+                      <td style={{padding:"12px 14px",fontWeight:700,color:"#E05E5C"}}>{o.isUrgent&&<span style={{marginLeft:4,marginRight:4}}>⚡</span>}{o.id}</td>
                       <td style={{padding:"12px 14px",fontWeight:600}}>{o.customer||"--"}</td>
                       <td style={{padding:"12px 14px",color:tm}}>{o.phone}</td>
                       <td style={{padding:"12px 14px",color:tm}}>{o.date}</td>
@@ -786,6 +800,7 @@ export default function App(){
                         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                           <button onClick={()=>{setSelected(o);setPage("detail");}} style={{background:C.navyLight,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>{t.view}</button>
                           {can("payments")&&<button onClick={()=>{setPayTarget(o);setShowPay(true);}} style={{background:C.greenLight,color:"#2D7A4F",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>{t.pay}</button>}
+                          {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"1px solid "+(o.isUrgent?"#F97316":bc),borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:12,fontWeight:700,color:o.isUrgent?"#F97316":tm}} title={o.isUrgent?(rtl?"إلغاء المستعجل":"Remove urgent"):(rtl?"تعليم مستعجل":"Mark urgent")}>⚡</button>}
                           {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>🗑</button>}
                         </div>
                       </td>
@@ -803,8 +818,11 @@ export default function App(){
           return <div>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24,flexWrap:"wrap"}}>
               <button onClick={()=>setPage("orders")} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {t.back}</button>
-              <h1 style={{fontSize:22,fontWeight:800,margin:0,flex:1}}>{rtl?"الطلب":"Order"} {o.id}</h1>
+              <h1 style={{fontSize:22,fontWeight:800,margin:0,flex:1}}>{rtl?"الطلب":"Order"} {o.id}{o.isUrgent&&<span style={{marginRight:8,marginLeft:8,fontSize:18}}>⚡</span>}</h1>
               <Badge status={o.status}/>
+              {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"2px solid "+(o.isUrgent?"#F97316":bc),borderRadius:8,padding:"8px 16px",fontWeight:800,cursor:"pointer",color:o.isUrgent?"#F97316":tm,fontSize:13}}>
+                ⚡ {o.isUrgent?(rtl?"إلغاء المستعجل":"Remove Urgent"):(rtl?"تعليم مستعجل":"Mark Urgent")}
+              </button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
               {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
