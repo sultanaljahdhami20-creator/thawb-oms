@@ -36,6 +36,9 @@ const SEED_USERS=[
 const ORDER_TYPES_EN=["Cotton Full","Full Leather","Cotton & Leather","Hoodie","Mix"];
 const ORDER_TYPES_AR=["قطن كامل","جلد كامل","قطن وجلد","هودي","مكس"];
 const JACKET_SIZES=["XS","S","M","L","XL","XXL","3XL","4XL","5XL","مقاس خاص"];
+const ERROR_SUB_STATUSES_AR=["تم استلامه من العميل","في المخزن","تم الإرسال للمصنع","في التعديل","انتهى التعديل","في انتظار الشحن","في المخزن (بعد المصنع)","تم إرساله للعميل"];
+const ERROR_SUB_STATUSES_EN=["Received from Client","In Warehouse","Sent to Factory","Under Modification","Modification Done","Waiting for Shipping","In Warehouse (Post-Factory)","Sent to Client"];
+const ERROR_SUB_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#22C55E",bg:"#F0FDF4"}];
 const ERROR_STATUSES_AR=["تم تسجيل الخطأ","بانتظار استلام الجاكيت من العميل","تم استلام الجاكيت","تم إرساله إلى المصنع","قيد التعديل","تم الانتهاء من التعديل","تم استلامه من المصنع","جاهز للتسليم","تم تسليمه إلى العميل","تم إغلاق الحالة","يحتاج إلى استبدال"];
 const ERROR_STATUSES_EN=["Error Registered","Waiting to Receive Jacket","Jacket Received","Sent to Factory","Under Modification","Modification Done","Received from Factory","Ready for Delivery","Delivered to Client","Case Closed","Needs Replacement"];
 const ERROR_STATUS_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#2D7A4F",bg:"#D1FAE5"},{color:"#94A3B8",bg:"#F1F5F9"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -181,7 +184,10 @@ export default function App(){
             payments:(o.payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
             history:o.history||[],
             extras:Number(o.extras)||0,
-            deliveryArea:o.delivery_area||""
+            deliveryArea:o.delivery_area||"",
+            orderType:o.order_type||o.orderType||"",
+            isUrgent:o.is_urgent||false,
+            errorSubStatus:o.error_sub_status||0
           })));
         }
         if(sups&&sups.length>0){
@@ -268,6 +274,16 @@ export default function App(){
     if(selected?.id===o.id)setSelected(s=>({...s,isUrgent:val}));
     logActivity(val?(rtl?"تعليم مستعجل":"Marked urgent"):(rtl?"إلغاء المستعجل":"Removed urgent"),o.id);
     showT(val?(rtl?"⚡ تم تعليم الطلب كمستعجل":"⚡ Order marked urgent"):(rtl?"تم إلغاء التعليم":"Urgent removed"));
+  };
+
+  const updateOrderSubStatus=async(o,subSt)=>{
+    const d=new Date().toISOString().slice(0,10);
+    try{await supabase.from("orders").update({error_sub_status:subSt,updated:d}).eq("id",o.id);}catch(e){}
+    setOrders(prev=>prev.map(x=>x.id!==o.id?x:{...x,errorSubStatus:subSt,updated:d}));
+    if(selected?.id===o.id)setSelected(s=>({...s,errorSubStatus:subSt}));
+    const label=subSt>0?(rtl?ERROR_SUB_STATUSES_AR[subSt-1]:ERROR_SUB_STATUSES_EN[subSt-1]):"--";
+    logActivity(rtl?"تحديث حالة الخطأ الفرعية":"Error sub-status updated",`${o.id} → ${label}`);
+    showT(rtl?"تم تحديث الحالة الفرعية":"Sub-status updated");
   };
 
   const logActivity=(action,details)=>{
@@ -1210,129 +1226,108 @@ export default function App(){
             ))}
           </div>
         </div>}
-        {/* JACKET ERRORS */}
+        {/* JACKET ERRORS — STATUS 13 ORDERS */}
         {page==="errors"&&can("orders")&&(()=>{
-          const ESC=ERROR_STATUS_COLORS;
-          const esl=(s)=>rtl?ERROR_STATUSES_AR[s-1]:ERROR_STATUSES_EN[s-1];
-          const filtErr=jacketErrors.filter(e=>{
+          const errorOrders=orders.filter(o=>o.status===13);
+          const filtErrOrd=errorOrders.filter(o=>{
             const q=errorSearch.toLowerCase();
-            if(q&&!e.order_id?.toLowerCase().includes(q)&&!e.customer_name?.toLowerCase().includes(q)&&!e.customer_phone?.includes(q)&&!e.jacket_owner?.toLowerCase().includes(q))return false;
-            if(errorStatusFilter&&e.status!==errorStatusFilter)return false;
-            if(errorDateFrom&&e.created_at?.slice(0,10)<errorDateFrom)return false;
-            if(errorDateTo&&e.created_at?.slice(0,10)>errorDateTo)return false;
+            if(q&&!o.id.toLowerCase().includes(q)&&!o.customer?.toLowerCase().includes(q)&&!o.phone?.includes(q))return false;
+            if(errorStatusFilter&&o.errorSubStatus!==errorStatusFilter)return false;
+            if(errorDateFrom&&o.updated<errorDateFrom)return false;
+            if(errorDateTo&&o.updated>errorDateTo)return false;
             return true;
-          }).sort((a,b)=>new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at));
-          const isOverdue=(e)=>e.status<9&&e.status!==10&&new Date()-new Date(e.updated_at||e.created_at)>7*86400000;
+          }).sort((a,b)=>new Date(b.updated||b.date)-new Date(a.updated||a.date));
+          const subLabel=(s)=>s>0?(rtl?ERROR_SUB_STATUSES_AR[s-1]:ERROR_SUB_STATUSES_EN[s-1]):(rtl?"لم تُحدَّد بعد":"Not set yet");
+          const subColor=(s)=>s>0?ERROR_SUB_COLORS[s-1]:{color:"#94A3B8",bg:"#F1F5F9"};
           if(selectedError){
-            const e=jacketErrors.find(x=>x.id===selectedError.id)||selectedError;
-            const sc2=ESC[e.status-1]||ESC[0];
+            const o=orders.find(x=>x.id===selectedError.id)||selectedError;
+            const jErrs=jacketErrors.filter(e=>e.order_id===o.id);
             return <div>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,flexWrap:"wrap"}}>
                 <button onClick={()=>setSelectedError(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
-                <h1 style={{fontSize:20,fontWeight:800,margin:0,flex:1}}>🔧 {e.jacket_owner} — {e.order_id}</h1>
-                <span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"5px 14px",fontWeight:700,fontSize:12}}>{esl(e.status)}</span>
-                <button onClick={()=>{setPage("detail");const o=orders.find(x=>x.id===e.order_id);if(o)setSelected(o);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {rtl?"فتح الطلب":"Open Order"}</button>
-                {currentUser.role==="admin"&&<button onClick={()=>deleteJacketError(e)} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑</button>}
+                <h1 style={{fontSize:20,fontWeight:800,margin:0,flex:1}}>🔧 {rtl?"طلب فيه خطأ":"Error Order"} — {o.id}</h1>
+                <button onClick={()=>{setSelected(o);setPage("detail");setSelectedError(null);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {rtl?"فتح الطلب الأصلي":"Open Original Order"}</button>
               </div>
               <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>👤 {rtl?"معلومات الجاكيت":"Jacket Info"}</h3>
-                  {[[rtl?"رقم الطلب":"Order ID",e.order_id],[rtl?"اسم العميل":"Customer",e.customer_name||"--"],[rtl?"رقم الهاتف":"Phone",e.customer_phone||"--"],[rtl?"صاحب الجاكيت":"Jacket Owner",e.jacket_owner],[rtl?"نوع الجاكيت":"Type",e.jacket_type||"--"],[rtl?"المقاس":"Size",e.jacket_size||"--"],[rtl?"تاريخ التسجيل":"Registered",e.created_at?.slice(0,10)||"--"],[rtl?"آخر تحديث":"Last Update",e.updated_at?.slice(0,10)||"--"]].map(([k,v])=>(
+                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>👤 {rtl?"معلومات الطلب":"Order Info"}</h3>
+                  {[[rtl?"رقم الطلب":"Order ID",o.id],[rtl?"اسم العميل":"Customer",o.customer||"--"],[rtl?"رقم الهاتف":"Phone",o.phone],[rtl?"تاريخ الطلب":"Order Date",o.date],[rtl?"عدد الجاكيتات":"Jackets",o.jackets],[rtl?"نوع الجاكيت":"Type",o.orderType||"--"],[rtl?"آخر تحديث":"Last Update",o.updated||"--"]].map(([k,v])=>(
                     <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+bc}}>
                       <span style={{fontSize:12,color:tm}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
                     </div>
                   ))}
-                  {e.error_image_url&&<div style={{marginTop:12}}><img src={e.error_image_url} alt="error" style={{width:"100%",borderRadius:8,maxHeight:200,objectFit:"cover"}} onError={ev=>ev.target.style.display="none"}/></div>}
                 </div>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>⚠️ {rtl?"وصف الخطأ":"Error Description"}</h3>
-                  <p style={{fontSize:13,color:tp,lineHeight:1.6,margin:"0 0 16px"}}>{e.error_description}</p>
-                  <h3 style={{margin:"0 0 10px",fontSize:13,fontWeight:700}}>🔄 {rtl?"تغيير الحالة":"Change Status"}</h3>
+                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔄 {rtl?"الحالة الفرعية":"Sub-Status"}</h3>
+                  <div style={{marginBottom:14}}>
+                    {o.errorSubStatus>0?<span style={{background:subColor(o.errorSubStatus).bg,color:subColor(o.errorSubStatus).color,borderRadius:20,padding:"5px 14px",fontWeight:700,fontSize:13}}>{subLabel(o.errorSubStatus)}</span>:<span style={{color:tm,fontSize:13}}>{rtl?"لم تُحدَّد بعد":"Not set yet"}</span>}
+                  </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                    {ERROR_STATUSES_AR.map((_,i)=>{
-                      const sIdx=i+1,sc3=ESC[i];
-                      return <button key={sIdx} onClick={()=>updateErrorStatus(e,sIdx)} style={{background:e.status===sIdx?sc3.color:sc3.bg,color:e.status===sIdx?"#fff":sc3.color,border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{rtl?ERROR_STATUSES_AR[i]:ERROR_STATUSES_EN[i]}</button>;
+                    {ERROR_SUB_STATUSES_AR.map((_,i)=>{
+                      const idx=i+1,sc2=ERROR_SUB_COLORS[i];
+                      return <button key={idx} onClick={()=>updateOrderSubStatus(o,idx)} style={{background:o.errorSubStatus===idx?sc2.color:sc2.bg,color:o.errorSubStatus===idx?"#fff":sc2.color,border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]}</button>;
                     })}
                   </div>
                 </div>
               </div>
-              <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                    <h3 style={{margin:0,fontSize:13,fontWeight:700}}>💬 {rtl?"الملاحظات":"Notes"}</h3>
-                    <button onClick={()=>setShowAddNote(true)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",fontSize:12}}>+ {rtl?"إضافة":"Add"}</button>
-                  </div>
-                  {(e.notes||[]).length===0?<p style={{color:tm,fontSize:13}}>{rtl?"لا توجد ملاحظات":"No notes yet"}</p>:
-                  [...(e.notes||[])].reverse().map((n,i)=>(
-                    <div key={i} style={{background:C.slateLight,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
-                      <p style={{margin:"0 0 6px",fontSize:13,lineHeight:1.5}}>{n.text}</p>
-                      <div style={{fontSize:11,color:tm}}>{n.by} · {new Date(n.at).toLocaleString(rtl?"ar-OM":"en-GB")}</div>
-                    </div>
-                  ))}
-                  {showAddNote&&<div style={{marginTop:12}}>
-                    <textarea value={noteText} onChange={e2=>setNoteText(e2.target.value)} rows={3} placeholder={rtl?"اكتب ملاحظتك هنا...":"Write your note..."} style={{...IS,width:"100%",resize:"vertical",marginBottom:8}}/>
-                    <div style={{display:"flex",gap:8}}>
-                      <button onClick={addJacketNote} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:700,cursor:"pointer",flex:1}}>{rtl?"حفظ":"Save"}</button>
-                      <button onClick={()=>{setShowAddNote(false);setNoteText("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 16px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                    </div>
-                  </div>}
-                </div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🕒 {rtl?"سجل الحالات":"Status Timeline"}</h3>
-                  {[...(e.statusHistory||[])].reverse().map((h,i)=>{
-                    const sc4=ESC[(h.status||1)-1];
-                    return <div key={i} style={{display:"flex",gap:10,marginBottom:10,paddingBottom:10,borderBottom:"1px solid "+bc}}>
-                      <div style={{width:8,height:8,borderRadius:"50%",background:sc4.color,marginTop:5,flexShrink:0}}/>
-                      <div>
-                        <div style={{fontSize:12,fontWeight:700,color:sc4.color}}>{rtl?ERROR_STATUSES_AR[(h.status||1)-1]:ERROR_STATUSES_EN[(h.status||1)-1]}</div>
-                        <div style={{fontSize:11,color:tm}}>{h.by} · {new Date(h.at).toLocaleString(rtl?"ar-OM":"en-GB")}</div>
-                      </div>
+              {jErrs.length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:16}}>
+                <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔧 {rtl?"جاكيتات مسجّلة بأخطاء تفصيلية":"Detailed Jacket Error Records"} ({jErrs.length})</h3>
+                <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+                  {jErrs.map((e,i)=>{
+                    const sc2=ERROR_STATUS_COLORS[e.status-1]||ERROR_STATUS_COLORS[0];
+                    return <div key={i} style={{background:C.slateLight,borderRadius:10,padding:"10px 14px",minWidth:200}}>
+                      <div style={{fontWeight:700,marginBottom:4}}>{e.jacket_owner}</div>
+                      <div style={{fontSize:12,color:tm,marginBottom:6}}>{e.jacket_type} · {e.jacket_size}</div>
+                      <span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rtl?ERROR_STATUSES_AR[e.status-1]:ERROR_STATUSES_EN[e.status-1]}</span>
                     </div>;
                   })}
                 </div>
-              </div>
+              </div>}
             </div>;
           }
           return <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
               <div>
-                <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🔧 {rtl?"الجاكيتات التي بها أخطاء":"Jacket Errors"}</h1>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {ERROR_STATUSES_AR.map((_,i)=>{const cnt=jacketErrors.filter(e=>e.status===i+1).length;if(!cnt)return null;const sc2=ESC[i];return <span key={i} style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rtl?ERROR_STATUSES_AR[i]:ERROR_STATUSES_EN[i]} ({cnt})</span>;})}
-                </div>
+                <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🔧 {rtl?"الطلبات التي بها أخطاء":"Orders with Errors"}</h1>
+                <div style={{fontSize:13,color:tm}}>{rtl?"جميع الطلبات في حالة «فيه خطأ»":"All orders with Has Issue status"} · <b style={{color:"#DC2626"}}>{errorOrders.length}</b> {rtl?"طلب":"orders"}</div>
               </div>
             </div>
             <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-              <input value={errorSearch} onChange={e=>setErrorSearch(e.target.value)} placeholder={rtl?"بحث برقم الطلب أو العميل...":"Search by order, customer..."} style={{...IS,minWidth:220,width:"auto"}}/>
+              <input value={errorSearch} onChange={e=>setErrorSearch(e.target.value)} placeholder={rtl?"بحث برقم الطلب أو اسم العميل...":"Search by order or customer..."} style={{...IS,minWidth:220,width:"auto"}}/>
               <select value={errorStatusFilter} onChange={e=>setErrorStatusFilter(Number(e.target.value))} style={{...IS,width:"auto"}}>
-                <option value={0}>{rtl?"جميع الحالات":"All Statuses"}</option>
-                {ERROR_STATUSES_AR.map((s,i)=><option key={i} value={i+1}>{rtl?s:ERROR_STATUSES_EN[i]}</option>)}
+                <option value={0}>{rtl?"جميع الحالات الفرعية":"All Sub-Statuses"}</option>
+                {ERROR_SUB_STATUSES_AR.map((s,i)=><option key={i} value={i+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i]}</option>)}
               </select>
-              <input type="date" value={errorDateFrom} onChange={e=>setErrorDateFrom(e.target.value)} style={{...IS,width:"auto"}}/>
-              <input type="date" value={errorDateTo} onChange={e=>setErrorDateTo(e.target.value)} style={{...IS,width:"auto"}}/>
-              {(errorSearch||errorStatusFilter||errorDateFrom||errorDateTo)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);setErrorDateFrom("");setErrorDateTo("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm,fontSize:13}}>{rtl?"مسح":"Clear"}</button>}
-              <span style={{fontSize:13,color:tm,marginRight:"auto"}}>{filtErr.length} {rtl?"سجل":"records"}</span>
+              {(errorSearch||errorStatusFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm,fontSize:13}}>{rtl?"مسح":"Clear"}</button>}
+              <span style={{fontSize:13,color:tm}}>{filtErrOrd.length} {rtl?"طلب":"orders"}</span>
             </div>
-            {filtErr.length===0?<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}><div style={{fontSize:32,marginBottom:10}}>✅</div><div style={{fontSize:14,fontWeight:600}}>{rtl?"لا توجد أخطاء مسجلة":"No error records found"}</div></div>:
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+              {ERROR_SUB_STATUSES_AR.map((_,i)=>{const cnt=errorOrders.filter(o=>o.errorSubStatus===i+1).length;if(!cnt)return null;const sc2=ERROR_SUB_COLORS[i];return <span key={i} style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]} ({cnt})</span>;})}
+              {errorOrders.filter(o=>!o.errorSubStatus).length>0&&<span style={{background:"#F1F5F9",color:"#94A3B8",borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?"لم تُحدَّد":"Not set"} ({errorOrders.filter(o=>!o.errorSubStatus).length})</span>}
+            </div>
+            {filtErrOrd.length===0?<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}><div style={{fontSize:32,marginBottom:10}}>✅</div><div style={{fontSize:14,fontWeight:600}}>{rtl?"لا توجد طلبات بها أخطاء":"No error orders found"}</div></div>:
             <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"صاحب الجاكيت":"Jacket Owner",rtl?"النوع":"Type",rtl?"المقاس":"Size",rtl?"الحالة":"Status",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"الجاكيتات":"Jackets",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                   </tr></thead>
                   <tbody>
-                    {filtErr.map((e,i)=>{
-                      const sc2=ESC[e.status-1]||ESC[0];
-                      const overdue=isOverdue(e);
-                      return <tr key={e.id} style={{borderTop:"1px solid "+bc,background:overdue?"#FFF7ED":i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
-                        <td style={{padding:"12px 14px",fontWeight:700,color:"#E05E5C"}}>{overdue&&<span title={rtl?"متأخرة":"Overdue"}>⚠️ </span>}{e.order_id}</td>
-                        <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{e.customer_name||"--"}</div><div style={{fontSize:11,color:tm}}>{e.customer_phone}</div></td>
-                        <td style={{padding:"12px 14px",fontWeight:600}}>{e.jacket_owner}</td>
-                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.jacket_type||"--"}</td>
-                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.jacket_size||"--"}</td>
-                        <td style={{padding:"12px 14px"}}><span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{esl(e.status)}</span></td>
-                        <td style={{padding:"12px 14px",color:tm,fontSize:12,whiteSpace:"nowrap"}}>{e.updated_at?.slice(0,10)||e.created_at?.slice(0,10)||"--"}</td>
-                        <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedError(e)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
+                    {filtErrOrd.map((o,i)=>{
+                      const sc2=subColor(o.errorSubStatus);
+                      return <tr key={o.id} style={{borderTop:"1px solid "+bc,background:i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
+                        <td style={{padding:"12px 14px",fontWeight:700,color:"#DC2626"}}>{o.id}</td>
+                        <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{o.customer||"--"}</div><div style={{fontSize:11,color:tm}}>{o.phone}</div></td>
+                        <td style={{padding:"12px 14px",textAlign:"center",fontWeight:700}}>{o.jackets}</td>
+                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
+                        <td style={{padding:"12px 14px"}}>
+                          <select value={o.errorSubStatus||0} onChange={e2=>updateOrderSubStatus(o,Number(e2.target.value))} style={{background:sc2.bg,color:sc2.color,border:"1px solid "+sc2.color,borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                            <option value={0}>{rtl?"-- اختر الحالة --":"-- Select --"}</option>
+                            {ERROR_SUB_STATUSES_AR.map((s,i2)=><option key={i2} value={i2+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i2]}</option>)}
+                          </select>
+                        </td>
+                        <td style={{padding:"12px 14px",color:tm,fontSize:12,whiteSpace:"nowrap"}}>{o.updated||o.date||"--"}</td>
+                        <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedError(o)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
                       </tr>;
                     })}
                   </tbody>
