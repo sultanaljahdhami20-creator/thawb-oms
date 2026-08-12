@@ -189,7 +189,8 @@ export default function App(){
             orderType:o.order_type||o.orderType||"",
             isUrgent:o.is_urgent||false,
             errorSubStatus:o.error_sub_status||0,
-            errorNotes:o.error_notes||[]
+            errorNotes:o.error_notes||[],
+            errorJacketsCount:o.error_jackets_count||0
           })));
         }
         if(sups&&sups.length>0){
@@ -305,6 +306,13 @@ export default function App(){
     const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
     (async()=>{try{await supabase.from("activity_log").insert({user_id:entry.user_id,user_name:entry.user_name,action,details});}catch(e){}})();
     setActivityLog(prev=>[entry,...prev]);
+  };
+
+  const updateErrorJacketsCount=async(o,count)=>{
+    const val=Math.max(0,Math.min(count,o.jackets));
+    try{await supabase.from("orders").update({error_jackets_count:val}).eq("id",o.id);}catch(e){}
+    setOrders(prev=>prev.map(x=>x.id!==o.id?x:{...x,errorJacketsCount:val}));
+    if(selectedError?.id===o.id)setSelectedError(s=>({...s,errorJacketsCount:val}));
   };
 
   // ── Jacket Errors
@@ -1270,6 +1278,15 @@ export default function App(){
                       <span style={{fontSize:12,color:tm}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
                     </div>
                   ))}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid "+bc}}>
+                    <span style={{fontSize:12,color:tm}}>{rtl?"عدد الجاكيتات المعطوبة":"Error Jackets Count"}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)-1)} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontWeight:800,fontSize:15,color:tp}}>−</button>
+                      <span style={{fontWeight:900,fontSize:18,color:"#DC2626",minWidth:30,textAlign:"center"}}>{o.errorJacketsCount||0}</span>
+                      <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)+1)} style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontWeight:800,fontSize:15,color:"#DC2626"}}>+</button>
+                      <span style={{fontSize:12,color:tm}}>{rtl?"من":"/ "}{o.jackets}</span>
+                    </div>
+                  </div>
                 </div>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔄 {rtl?"الحالة الفرعية":"Sub-Status"}</h3>
@@ -1346,7 +1363,7 @@ export default function App(){
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"الجاكيتات":"Jackets",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"الجاكيتات":"Jackets",rtl?"منها خطأ":"Error Count",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {filtErrOrd.map((o,i)=>{
@@ -1356,6 +1373,14 @@ export default function App(){
                         <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{o.customer||"--"}</div><div style={{fontSize:11,color:tm}}>{o.phone}</div></td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.supplier||"--"}</td>
                         <td style={{padding:"12px 14px",textAlign:"center",fontWeight:700}}>{o.jackets}</td>
+                        <td style={{padding:"12px 14px",textAlign:"center"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"center"}}>
+                            <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)-1)} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:800,color:tp}}>−</button>
+                            <span style={{fontWeight:800,color:"#DC2626",minWidth:20,textAlign:"center"}}>{o.errorJacketsCount||0}</span>
+                            <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)+1)} style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:800,color:"#DC2626"}}>+</button>
+                          </div>
+                          <div style={{fontSize:10,color:tm,textAlign:"center"}}>{rtl?"من":"of"} {o.jackets}</div>
+                        </td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
                         <td style={{padding:"12px 14px"}}>
                           <select value={o.errorSubStatus||0} onChange={e2=>updateOrderSubStatus(o,Number(e2.target.value))} style={{background:sc2.bg,color:sc2.color,border:"1px solid "+sc2.color,borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
