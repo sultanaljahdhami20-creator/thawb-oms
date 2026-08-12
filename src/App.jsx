@@ -187,7 +187,8 @@ export default function App(){
             deliveryArea:o.delivery_area||"",
             orderType:o.order_type||o.orderType||"",
             isUrgent:o.is_urgent||false,
-            errorSubStatus:o.error_sub_status||0
+            errorSubStatus:o.error_sub_status||0,
+            errorNotes:o.error_notes||[]
           })));
         }
         if(sups&&sups.length>0){
@@ -280,10 +281,23 @@ export default function App(){
     const d=new Date().toISOString().slice(0,10);
     try{await supabase.from("orders").update({error_sub_status:subSt,updated:d}).eq("id",o.id);}catch(e){}
     setOrders(prev=>prev.map(x=>x.id!==o.id?x:{...x,errorSubStatus:subSt,updated:d}));
-    if(selected?.id===o.id)setSelected(s=>({...s,errorSubStatus:subSt}));
+    if(selectedError?.id===o.id)setSelectedError(s=>({...s,errorSubStatus:subSt}));
     const label=subSt>0?(rtl?ERROR_SUB_STATUSES_AR[subSt-1]:ERROR_SUB_STATUSES_EN[subSt-1]):"--";
     logActivity(rtl?"تحديث حالة الخطأ الفرعية":"Error sub-status updated",`${o.id} → ${label}`);
     showT(rtl?"تم تحديث الحالة الفرعية":"Sub-status updated");
+  };
+
+  const addErrorNote=async(orderId)=>{
+    if(!noteText.trim()){showT(rtl?"اكتب ملاحظة":"Write a note","error");return;}
+    const now=new Date().toISOString();
+    const note={text:noteText.trim(),by:currentUser?.name||"Admin",at:now};
+    const order=orders.find(o=>o.id===orderId);
+    const newNotes=[...(order?.errorNotes||[]),note];
+    try{await supabase.from("orders").update({error_notes:newNotes}).eq("id",orderId);}catch(e){}
+    setOrders(prev=>prev.map(x=>x.id!==orderId?x:{...x,errorNotes:newNotes}));
+    if(selectedError?.id===orderId)setSelectedError(s=>({...s,errorNotes:newNotes}));
+    setNoteText("");setShowAddNote(false);
+    showT(rtl?"تمت إضافة الملاحظة":"Note added");
   };
 
   const logActivity=(action,details)=>{
@@ -820,7 +834,7 @@ export default function App(){
           <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
             <h3 style={{margin:"0 0 14px",fontSize:14,fontWeight:700}}>{t.supplierWorkload}</h3>
             <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
-              {suppliers.map(s=>{const a=orders.filter(o=>o.supplier===s.name&&o.status<12).length;return <div key={s.id} style={{flex:1,minWidth:120,background:C.slateLight,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:13,fontWeight:700,marginBottom:4}}>{s.name}</div><div style={{fontSize:22,fontWeight:800,color:"#202F4D"}}>{a}</div><div style={{fontSize:11,color:C.slate}}>{t.activeOrders}</div></div>;})}
+              {suppliers.map(s=>{const a=orders.filter(o=>o.supplier===s.name&&o.status!==12).length;return <div key={s.id} style={{flex:1,minWidth:120,background:C.slateLight,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:13,fontWeight:700,marginBottom:4}}>{s.name}</div><div style={{fontSize:22,fontWeight:800,color:"#202F4D"}}>{a}</div><div style={{fontSize:11,color:C.slate}}>{t.activeOrders}</div></div>;})}
               {suppliers.length===0&&<p style={{color:tm,fontSize:13}}>{t.noSuppliersYet}</p>}
             </div>
           </div>
@@ -1226,19 +1240,17 @@ export default function App(){
             ))}
           </div>
         </div>}
-        {/* JACKET ERRORS — STATUS 13 ORDERS */}
+        {/* JACKET ERRORS — AUTO FROM STATUS 13 */}
         {page==="errors"&&can("orders")&&(()=>{
+          const subLabel=(s)=>s>0?(rtl?ERROR_SUB_STATUSES_AR[s-1]:ERROR_SUB_STATUSES_EN[s-1]):(rtl?"لم تُحدَّد بعد":"Not set yet");
+          const subColor=(s)=>s>0?ERROR_SUB_COLORS[s-1]:{color:"#94A3B8",bg:"#F1F5F9"};
           const errorOrders=orders.filter(o=>o.status===13);
           const filtErrOrd=errorOrders.filter(o=>{
             const q=errorSearch.toLowerCase();
             if(q&&!o.id.toLowerCase().includes(q)&&!o.customer?.toLowerCase().includes(q)&&!o.phone?.includes(q))return false;
             if(errorStatusFilter&&o.errorSubStatus!==errorStatusFilter)return false;
-            if(errorDateFrom&&o.updated<errorDateFrom)return false;
-            if(errorDateTo&&o.updated>errorDateTo)return false;
             return true;
           }).sort((a,b)=>new Date(b.updated||b.date)-new Date(a.updated||a.date));
-          const subLabel=(s)=>s>0?(rtl?ERROR_SUB_STATUSES_AR[s-1]:ERROR_SUB_STATUSES_EN[s-1]):(rtl?"لم تُحدَّد بعد":"Not set yet");
-          const subColor=(s)=>s>0?ERROR_SUB_COLORS[s-1]:{color:"#94A3B8",bg:"#F1F5F9"};
           if(selectedError){
             const o=orders.find(x=>x.id===selectedError.id)||selectedError;
             const jErrs=jacketErrors.filter(e=>e.order_id===o.id);
@@ -1251,7 +1263,7 @@ export default function App(){
               <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>👤 {rtl?"معلومات الطلب":"Order Info"}</h3>
-                  {[[rtl?"رقم الطلب":"Order ID",o.id],[rtl?"اسم العميل":"Customer",o.customer||"--"],[rtl?"رقم الهاتف":"Phone",o.phone],[rtl?"تاريخ الطلب":"Order Date",o.date],[rtl?"عدد الجاكيتات":"Jackets",o.jackets],[rtl?"نوع الجاكيت":"Type",o.orderType||"--"],[rtl?"آخر تحديث":"Last Update",o.updated||"--"]].map(([k,v])=>(
+                  {[[rtl?"رقم الطلب":"Order ID",o.id],[rtl?"اسم العميل":"Customer",o.customer||"--"],[rtl?"رقم الهاتف":"Phone",o.phone],[rtl?"تاريخ الطلب":"Order Date",o.date],[rtl?"عدد الجاكيتات":"Jackets",o.jackets],[rtl?"نوع الجاكيت":"Type",o.orderType||"--"],[rtl?"المورد":"Supplier",o.supplier||"--"],[rtl?"آخر تحديث":"Last Update",o.updated||"--"]].map(([k,v])=>(
                     <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+bc}}>
                       <span style={{fontSize:12,color:tm}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
                     </div>
@@ -1270,47 +1282,65 @@ export default function App(){
                   </div>
                 </div>
               </div>
-              {jErrs.length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:16}}>
-                <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔧 {rtl?"جاكيتات مسجّلة بأخطاء تفصيلية":"Detailed Jacket Error Records"} ({jErrs.length})</h3>
-                <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+              <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <h3 style={{margin:0,fontSize:13,fontWeight:700}}>💬 {rtl?"الملاحظات":"Notes"}</h3>
+                    <button onClick={()=>setShowAddNote(true)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",fontSize:12}}>+ {rtl?"إضافة ملاحظة":"Add Note"}</button>
+                  </div>
+                  {(o.errorNotes||[]).length===0?<p style={{color:tm,fontSize:13,margin:0}}>{rtl?"لا توجد ملاحظات بعد":"No notes yet"}</p>:
+                  [...(o.errorNotes||[])].reverse().map((n,i)=>(
+                    <div key={i} style={{background:C.slateLight,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+                      <p style={{margin:"0 0 6px",fontSize:13,lineHeight:1.5}}>{n.text}</p>
+                      <div style={{fontSize:11,color:tm}}>{n.by} · {new Date(n.at).toLocaleString(rtl?"ar-OM":"en-GB")}</div>
+                    </div>
+                  ))}
+                  {showAddNote&&<div style={{marginTop:12}}>
+                    <textarea value={noteText} onChange={e2=>setNoteText(e2.target.value)} rows={3} placeholder={rtl?"اكتب ملاحظتك هنا...":"Write your note..."} style={{...IS,width:"100%",resize:"vertical",marginBottom:8}}/>
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>addErrorNote(o.id)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:700,cursor:"pointer",flex:1}}>{rtl?"حفظ":"Save"}</button>
+                      <button onClick={()=>{setShowAddNote(false);setNoteText("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 16px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+                    </div>
+                  </div>}
+                </div>
+                {jErrs.length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔧 {rtl?"جاكيتات مسجّلة تفصيلياً":"Detailed Jacket Records"} ({jErrs.length})</h3>
                   {jErrs.map((e,i)=>{
                     const sc2=ERROR_STATUS_COLORS[e.status-1]||ERROR_STATUS_COLORS[0];
-                    return <div key={i} style={{background:C.slateLight,borderRadius:10,padding:"10px 14px",minWidth:200}}>
+                    return <div key={i} style={{background:C.slateLight,borderRadius:10,padding:"10px 14px",marginBottom:8}}>
                       <div style={{fontWeight:700,marginBottom:4}}>{e.jacket_owner}</div>
                       <div style={{fontSize:12,color:tm,marginBottom:6}}>{e.jacket_type} · {e.jacket_size}</div>
                       <span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rtl?ERROR_STATUSES_AR[e.status-1]:ERROR_STATUSES_EN[e.status-1]}</span>
                     </div>;
                   })}
-                </div>
-              </div>}
+                </div>}
+              </div>
             </div>;
           }
           return <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
-              <div>
-                <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🔧 {rtl?"الطلبات التي بها أخطاء":"Orders with Errors"}</h1>
-                <div style={{fontSize:13,color:tm}}>{rtl?"جميع الطلبات في حالة «فيه خطأ»":"All orders with Has Issue status"} · <b style={{color:"#DC2626"}}>{errorOrders.length}</b> {rtl?"طلب":"orders"}</div>
-              </div>
+            <div style={{marginBottom:16}}>
+              <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🔧 {rtl?"الطلبات التي بها أخطاء":"Orders with Errors"}</h1>
+              <div style={{fontSize:13,color:tm}}>{rtl?"جميع الطلبات في حالة «فيه خطأ»":"All orders marked as Has Issue"} · <b style={{color:"#DC2626"}}>{errorOrders.length}</b> {rtl?"طلب":"orders"}</div>
             </div>
-            <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-              <input value={errorSearch} onChange={e=>setErrorSearch(e.target.value)} placeholder={rtl?"بحث برقم الطلب أو اسم العميل...":"Search by order or customer..."} style={{...IS,minWidth:220,width:"auto"}}/>
+            <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+              <input value={errorSearch} onChange={e=>setErrorSearch(e.target.value)} placeholder={rtl?"بحث برقم الطلب أو العميل...":"Search by order or customer..."} style={{...IS,minWidth:220,width:"auto"}}/>
               <select value={errorStatusFilter} onChange={e=>setErrorStatusFilter(Number(e.target.value))} style={{...IS,width:"auto"}}>
                 <option value={0}>{rtl?"جميع الحالات الفرعية":"All Sub-Statuses"}</option>
+                <option value={-1}>{rtl?"لم تُحدَّد بعد":"Not set yet"}</option>
                 {ERROR_SUB_STATUSES_AR.map((s,i)=><option key={i} value={i+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i]}</option>)}
               </select>
-              {(errorSearch||errorStatusFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm,fontSize:13}}>{rtl?"مسح":"Clear"}</button>}
-              <span style={{fontSize:13,color:tm}}>{filtErrOrd.length} {rtl?"طلب":"orders"}</span>
+              {(errorSearch||errorStatusFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm}}>{rtl?"مسح":"Clear"}</button>}
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
               {ERROR_SUB_STATUSES_AR.map((_,i)=>{const cnt=errorOrders.filter(o=>o.errorSubStatus===i+1).length;if(!cnt)return null;const sc2=ERROR_SUB_COLORS[i];return <span key={i} style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]} ({cnt})</span>;})}
               {errorOrders.filter(o=>!o.errorSubStatus).length>0&&<span style={{background:"#F1F5F9",color:"#94A3B8",borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?"لم تُحدَّد":"Not set"} ({errorOrders.filter(o=>!o.errorSubStatus).length})</span>}
             </div>
-            {filtErrOrd.length===0?<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}><div style={{fontSize:32,marginBottom:10}}>✅</div><div style={{fontSize:14,fontWeight:600}}>{rtl?"لا توجد طلبات بها أخطاء":"No error orders found"}</div></div>:
+            {filtErrOrd.length===0?<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}><div style={{fontSize:32,marginBottom:10}}>✅</div><p style={{fontSize:14,fontWeight:600,margin:0}}>{rtl?"لا توجد طلبات بها أخطاء":"No error orders found"}</p></div>:
             <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"الجاكيتات":"Jackets",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"الجاكيتات":"Jackets",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {filtErrOrd.map((o,i)=>{
@@ -1318,14 +1348,16 @@ export default function App(){
                       return <tr key={o.id} style={{borderTop:"1px solid "+bc,background:i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
                         <td style={{padding:"12px 14px",fontWeight:700,color:"#DC2626"}}>{o.id}</td>
                         <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{o.customer||"--"}</div><div style={{fontSize:11,color:tm}}>{o.phone}</div></td>
+                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.supplier||"--"}</td>
                         <td style={{padding:"12px 14px",textAlign:"center",fontWeight:700}}>{o.jackets}</td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
                         <td style={{padding:"12px 14px"}}>
                           <select value={o.errorSubStatus||0} onChange={e2=>updateOrderSubStatus(o,Number(e2.target.value))} style={{background:sc2.bg,color:sc2.color,border:"1px solid "+sc2.color,borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                            <option value={0}>{rtl?"-- اختر الحالة --":"-- Select --"}</option>
+                            <option value={0}>{rtl?"-- اختر --":"-- Select --"}</option>
                             {ERROR_SUB_STATUSES_AR.map((s,i2)=><option key={i2} value={i2+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i2]}</option>)}
                           </select>
                         </td>
+                        <td style={{padding:"12px 14px",textAlign:"center"}}><span style={{background:(o.errorNotes||[]).length>0?"#EEF2FF":"transparent",color:"#6366F1",borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:700}}>{(o.errorNotes||[]).length>0?`💬 ${(o.errorNotes||[]).length}`:""}</span></td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12,whiteSpace:"nowrap"}}>{o.updated||o.date||"--"}</td>
                         <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedError(o)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
                       </tr>;
@@ -1337,7 +1369,7 @@ export default function App(){
           </div>;
         })()}
 
-        {/* EXPENSES */}
+                {/* EXPENSES */}
         {page==="expenses"&&currentUser.role==="admin"&&(()=>{
           const expCats=rtl?EXPENSE_CATS_AR:EXPENSE_CATS_EN;
           const filtExps=expenses.filter(e=>{
