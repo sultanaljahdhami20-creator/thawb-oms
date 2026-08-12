@@ -160,13 +160,20 @@ export default function App(){
     const script=document.createElement("script");
     script.src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
     script.onload=()=>{
-      if(window.qz){
-        qzRef.current=window.qz;
-        window.qz.security.setCertificatePromise(()=>Promise.resolve());
-        window.qz.security.setSignatureAlgorithm("SHA512");
-        window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
-        window.qz.websocket.connect().then(()=>{setQzReady(true);}).catch(()=>{});
-      }
+      if(!window.qz)return;
+      qzRef.current=window.qz;
+      window.qz.security.setCertificatePromise(()=>Promise.resolve());
+      window.qz.security.setSignatureAlgorithm("SHA512");
+      window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
+      const checkActive=()=>{
+        if(window.qz.websocket.isActive()){setQzReady(true);return;}
+        window.qz.websocket.connect({usingSecure:false}).then(()=>setQzReady(true)).catch(()=>{
+          window.qz.websocket.connect({usingSecure:true}).then(()=>setQzReady(true)).catch(()=>{});
+        });
+      };
+      checkActive();
+      const poll=setInterval(()=>{if(window.qz.websocket.isActive()){setQzReady(true);clearInterval(poll);}},1000);
+      setTimeout(()=>clearInterval(poll),15000);
     };
     document.head.appendChild(script);
     return()=>{try{window.qz?.websocket.disconnect();}catch(e){}};
