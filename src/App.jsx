@@ -165,15 +165,19 @@ export default function App(){
       window.qz.security.setCertificatePromise(()=>Promise.resolve());
       window.qz.security.setSignatureAlgorithm("SHA512");
       window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
-      window.qz.websocket.setClosedCallbacks(()=>setQzReady(false));
-      window.qz.websocket.setConnectedCallbacks(()=>{qzRef.current=window.qz;setQzReady(true);});
-      if(window.qz.websocket.isActive()){setQzReady(true);}
-      else{
-        window.qz.websocket.connect().then(()=>{setQzReady(true);}).catch(()=>{});
-      }
     };
     document.head.appendChild(script);
-    return()=>{try{window.qz?.websocket.disconnect();}catch(e){}};
+    const iv=setInterval(()=>{
+      try{
+        const active=!!(window.qz&&window.qz.websocket&&window.qz.websocket.isActive&&window.qz.websocket.isActive());
+        setQzReady(prev=>prev===active?prev:active);
+        if(active&&window.qz)qzRef.current=window.qz;
+        else if(window.qz&&!active&&window.qz.websocket&&window.qz.websocket.connect){
+          window.qz.websocket.connect().catch(()=>{});
+        }
+      }catch(e){}
+    },1000);
+    return()=>clearInterval(iv);
   },[]);
 
   const printShippingLabel=async(o)=>{
