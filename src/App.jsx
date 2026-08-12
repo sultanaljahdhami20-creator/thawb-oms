@@ -160,117 +160,78 @@ export default function App(){
     const script=document.createElement("script");
     script.src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
     script.onload=()=>{
-      if(!window.qz)return;
-      qzRef.current=window.qz;
-      window.qz.security.setCertificatePromise(()=>Promise.resolve());
-      window.qz.security.setSignatureAlgorithm("SHA512");
-      window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
-      const onConnect=()=>setQzReady(true);
-      const onDisconnect=()=>setQzReady(false);
-      window.qz.websocket.setClosedCallbacks(onDisconnect);
-      window.qz.websocket.setErrorCallbacks(()=>{});
-      const doConnect=()=>{
-        if(window.qz.websocket.isActive()){setQzReady(true);return;}
-        window.qz.websocket.connect({usingSecure:false}).then(onConnect).catch(()=>
-          window.qz.websocket.connect({usingSecure:true}).then(onConnect).catch(()=>{})
-        );
-      };
-      doConnect();
-      const iv=setInterval(()=>{
-        if(window.qz?.websocket?.isActive())setQzReady(true);
-      },500);
-      setTimeout(()=>clearInterval(iv),10000);
+      if(window.qz){
+        qzRef.current=window.qz;
+        window.qz.security.setCertificatePromise(()=>Promise.resolve());
+        window.qz.security.setSignatureAlgorithm("SHA512");
+        window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
+        window.qz.websocket.connect().then(()=>{setQzReady(true);}).catch(()=>{});
+      }
     };
     document.head.appendChild(script);
     return()=>{try{window.qz?.websocket.disconnect();}catch(e){}};
   },[]);
 
+  const generateBarcodeSVG=(text)=>{
+    let rects=[];let x=10;
+    const narrow=2,wide=5,gap=3;
+    const safeText=(text||"").toUpperCase().replace(/[^0-9A-Z\-\.\ \$\/\+\%]/g,"").slice(0,20);
+    for(let i=0;i<safeText.length;i++){
+      const code=safeText.charCodeAt(i);
+      const pat=code%2===0?[wide,narrow,wide,narrow,narrow]:[narrow,wide,narrow,wide,narrow];
+      pat.forEach((w,j)=>{
+        if(j%2===0)rects.push(`<rect x="${x}" y="5" width="${w}" height="45" fill="#000"/>`);
+        x+=w+(j%2===1?gap:0);
+      });
+      x+=gap;
+    }
+    return rects.join("");
+  };
+
   const printShippingLabel=async(o)=>{
-    if(!qzReady||!qzRef.current){
-      showT(rtl?"QZ Tray غير متصل — تأكد إنه شغّال":"QZ Tray not connected","error");
+    if(!qzReady||!window.qz){
+      showT(rtl?"QZ Tray غير متصل":"QZ Tray not connected","error");
       return;
     }
     try{
-      const cfg=qzRef.current.configs.create("PM-241-BT",{size:{width:4,height:6},units:"in",colorType:"blackwhite",density:203});
-      const orderId=o.id||"";
+      const orderId=(o.id||"").toUpperCase();
       const customer=o.customer||"--";
       const phone=o.phone||"";
       const area=o.deliveryArea||"--";
       const jackets=String(o.jackets||0);
       const orderType=o.orderType||(rtl?"غير محدد":"N/A");
-      const dateStr=new Date().toLocaleDateString(rtl?"ar-OM":"en-GB");
-      const data=[
-        {type:"pixel",format:"html",flavor:"plain",data:`
-          <html><head><style>
-            *{margin:0;padding:0;box-sizing:border-box;}
-            body{width:100mm;font-family:Arial,sans-serif;color:#000;background:#fff;}
-            .header{border-bottom:3px solid #000;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;}
-            .brand{font-size:22px;font-weight:900;letter-spacing:2px;}
-            .sub{font-size:9px;font-weight:700;}
-            .section{padding:8px 10px;border-bottom:2px solid #000;}
-            .label{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}
-            .value{font-size:18px;font-weight:900;}
-            .value-sm{font-size:13px;font-weight:900;}
-            .row{display:flex;}
-            .col{flex:1;padding:8px 10px;}
-            .col-border{border-right:2px solid #000;}
-            .barcode-section{padding:10px;text-align:center;}
-            .bars{display:flex;gap:0;align-items:stretch;height:50px;justify-content:center;}
-            .bar{display:inline-block;}
-            .barcode-text{font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;margin-top:4px;}
-          </style></head><body>
-            <div class="header">
-              <div class="brand">THAWB</div>
-              <div class="sub">ثوب سينيورز</div>
-            </div>
-            <div class="section">
-              <div class="label">العميل / Customer</div>
-              <div class="value">${customer}</div>
-              <div class="value-sm" style="direction:ltr">${phone}</div>
-            </div>
-            <div class="section">
-              <div class="label">منطقة التوصيل / Delivery Area</div>
-              <div class="value">${area}</div>
-            </div>
-            <div class="row" style="border-bottom:2px solid #000">
-              <div class="col col-border">
-                <div class="label">نوع الطلب</div>
-                <div style="font-size:11px;font-weight:900">${orderType}</div>
-              </div>
-              <div class="col">
-                <div class="label">الجاكيتات</div>
-                <div style="font-size:11px;font-weight:900">${jackets}</div>
-              </div>
-            </div>
-            <div class="barcode-section">
-              <svg xmlns="http://www.w3.org/2000/svg" width="260" height="60" viewBox="0 0 260 60">
-                ${generateBarcodeSVG(orderId)}
-              </svg>
-              <div class="barcode-text">${orderId}</div>
-            </div>
-          </body></html>`}
-      ];
-      await qzRef.current.print(cfg,data);
-      showT(rtl?"✅ تمت الطباعة":"✅ Printed successfully");
+      const cfg=window.qz.configs.create("PM-241-BT",{size:{width:4,height:6},units:"in",density:203});
+      const html=`<html><head><style>
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{width:100mm;background:#fff;color:#000;font-family:Arial,sans-serif;}
+        .hdr{border-bottom:3px solid #000;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;}
+        .brand{font-size:24px;font-weight:900;letter-spacing:2px;}
+        .sec{padding:8px 10px;border-bottom:2px solid #000;}
+        .lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}
+        .val{font-size:20px;font-weight:900;}
+        .row{display:flex;border-bottom:2px solid #000;}
+        .col{flex:1;padding:8px 10px;}
+        .col+.col{border-left:2px solid #000;}
+        .bc{padding:10px;text-align:center;}
+        .bt{font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;margin-top:4px;}
+      </style></head><body>
+        <div class="hdr"><div class="brand">THAWB</div><div style="font-size:9px;font-weight:700">ثوب سينيورز</div></div>
+        <div class="sec"><div class="lbl">العميل / Customer</div><div class="val">${customer}</div><div style="font-size:13px;font-weight:700;direction:ltr">${phone}</div></div>
+        <div class="sec"><div class="lbl">منطقة التوصيل / Delivery Area</div><div class="val">${area}</div></div>
+        <div class="row">
+          <div class="col"><div class="lbl">نوع الطلب</div><div style="font-size:12px;font-weight:900">${orderType}</div></div>
+          <div class="col"><div class="lbl">الجاكيتات</div><div style="font-size:12px;font-weight:900">${jackets}</div></div>
+        </div>
+        <div class="bc">
+          <svg xmlns="http://www.w3.org/2000/svg" width="260" height="60">${generateBarcodeSVG(orderId)}</svg>
+          <div class="bt">${orderId}</div>
+        </div>
+      </body></html>`;
+      await window.qz.print(cfg,[{type:"pixel",format:"html",flavor:"plain",data:html}]);
+      showT(rtl?"✅ تمت الطباعة":"✅ Printed!");
     }catch(err){
-      showT(rtl?"خطأ في الطباعة: "+err.message:"Print error: "+err.message,"error");
+      showT(rtl?"خطأ: "+err.message:"Error: "+err.message,"error");
     }
-  };
-
-  const generateBarcodeSVG=(text)=>{
-    const chars="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
-    let bars=[];let x=10;
-    const narrow=2,wide=5,gap=2;
-    for(let i=0;i<Math.min(text.length,18);i++){
-      const pattern=[1,0,1,0,1,0,1,0,1];
-      pattern.forEach((w,j)=>{
-        const width=w===1?wide:narrow;
-        if(j%2===0)bars.push(`<rect x="${x}" y="5" width="${width}" height="45" fill="#000"/>`);
-        x+=width+(j%2===1?gap:0);
-      });
-      x+=gap;
-    }
-    return bars.join("");
   };
   const [search,setSearch]=useState("");
   const [fStatus,setFStatus]=useState(0);
