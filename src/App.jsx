@@ -35,6 +35,10 @@ const SEED_USERS=[
 
 const ORDER_TYPES_EN=["Cotton Full","Full Leather","Cotton & Leather","Hoodie","Mix"];
 const ORDER_TYPES_AR=["قطن كامل","جلد كامل","قطن وجلد","هودي","مكس"];
+const JACKET_SIZES=["XS","S","M","L","XL","XXL","3XL","4XL","5XL","مقاس خاص"];
+const ERROR_STATUSES_AR=["تم تسجيل الخطأ","بانتظار استلام الجاكيت من العميل","تم استلام الجاكيت","تم إرساله إلى المصنع","قيد التعديل","تم الانتهاء من التعديل","تم استلامه من المصنع","جاهز للتسليم","تم تسليمه إلى العميل","تم إغلاق الحالة","يحتاج إلى استبدال"];
+const ERROR_STATUSES_EN=["Error Registered","Waiting to Receive Jacket","Jacket Received","Sent to Factory","Under Modification","Modification Done","Received from Factory","Ready for Delivery","Delivered to Client","Case Closed","Needs Replacement"];
+const ERROR_STATUS_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#2D7A4F",bg:"#D1FAE5"},{color:"#94A3B8",bg:"#F1F5F9"},{color:"#DC2626",bg:"#FEF2F2"}];
 const EXPENSE_CATS_AR=["رواتب الموظفين","إيجار المصنع / المحل","مواد خام","مصاريف شحن وتوصيل","فواتير (كهرباء، نت...)","تسويق وإعلانات","مصاريف متنوعة"];
 const EXPENSE_CATS_EN=["Staff Salaries","Factory / Shop Rent","Raw Materials","Shipping & Delivery","Utilities","Marketing & Ads","Miscellaneous"];
 const EXPENSE_ICONS=["👤","🏭","🧵","🚚","💡","📣","📦"];
@@ -130,6 +134,18 @@ export default function App(){
   const [renumberValue,setRenumberValue]=useState("");
   const [renumbering,setRenumbering]=useState(false);
   const [urgentOnly,setUrgentOnly]=useState(false);
+  // ── Jacket Errors
+  const [jacketErrors,setJacketErrors]=useState([]);
+  const [selectedError,setSelectedError]=useState(null);
+  const [showNewError,setShowNewError]=useState(false);
+  const [newErrorOrderId,setNewErrorOrderId]=useState(null);
+  const [newErrorForm,setNewErrorForm]=useState({jacketOwner:"",jacketType:"",jacketSize:"",errorDescription:"",errorImageUrl:""});
+  const [errorSearch,setErrorSearch]=useState("");
+  const [errorStatusFilter,setErrorStatusFilter]=useState(0);
+  const [errorDateFrom,setErrorDateFrom]=useState("");
+  const [errorDateTo,setErrorDateTo]=useState("");
+  const [showAddNote,setShowAddNote]=useState(false);
+  const [noteText,setNoteText]=useState("");
 
   // ── Print/Reports
   const [showPrint,setShowPrint]=useState(false);
@@ -158,15 +174,14 @@ export default function App(){
         const {data:sett}=await supabase.from("settings").select("*").eq("id","main").single();
         const {data:logs}=await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(500);
         const {data:exps}=await supabase.from("expenses").select("*").order("date",{ascending:false});
+        const {data:jerrs}=await supabase.from("jacket_errors").select("*").order("created_at",{ascending:false});
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
             payments:(o.payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
             history:o.history||[],
             extras:Number(o.extras)||0,
-            deliveryArea:o.delivery_area||"",
-            orderType:o.order_type||o.orderType||"",
-            isUrgent:o.is_urgent||false
+            deliveryArea:o.delivery_area||""
           })));
         }
         if(sups&&sups.length>0){
@@ -201,6 +216,7 @@ export default function App(){
         }
         if(logs)setActivityLog(logs);
         if(exps)setExpenses(exps);
+        if(jerrs)setJacketErrors(jerrs.map(e=>({...e,notes:e.notes||[],statusHistory:e.status_history||[]})));
         try{
           const savedUserId=localStorage.getItem("thawb_user_id");
           if(savedUserId){
@@ -258,6 +274,52 @@ export default function App(){
     const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
     (async()=>{try{await supabase.from("activity_log").insert({user_id:entry.user_id,user_name:entry.user_name,action,details});}catch(e){}})();
     setActivityLog(prev=>[entry,...prev]);
+  };
+
+  // ── Jacket Errors
+  const saveNewJacketError=async()=>{
+    if(!newErrorForm.jacketOwner||!newErrorForm.errorDescription){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
+    const order=orders.find(o=>o.id===newErrorOrderId);
+    const now=new Date().toISOString();
+    const firstStatus={status:1,by:currentUser?.name||"Admin",at:now,note:""};
+    const entry={order_id:newErrorOrderId,customer_name:order?.customer||"",customer_phone:order?.phone||"",jacket_owner:newErrorForm.jacketOwner,jacket_type:newErrorForm.jacketType,jacket_size:newErrorForm.jacketSize,error_description:newErrorForm.errorDescription,error_image_url:newErrorForm.errorImageUrl,status:1,notes:[],status_history:[firstStatus],created_at:now,updated_at:now};
+    try{const {data}=await supabase.from("jacket_errors").insert({...entry,status_history:JSON.stringify([firstStatus]),notes:JSON.stringify([])}).select().single();if(data)entry.id=data.id;}catch(e){}
+    setJacketErrors(prev=>[{...entry,statusHistory:[firstStatus]},...prev]);
+    logActivity(rtl?"تسجيل خطأ جاكيت":"Jacket error registered",`${newErrorOrderId} — ${newErrorForm.jacketOwner}`);
+    setNewErrorForm({jacketOwner:"",jacketType:"",jacketSize:"",errorDescription:"",errorImageUrl:""});
+    setShowNewError(false);setNewErrorOrderId(null);
+    showT(rtl?"✅ تم تسجيل الخطأ":"✅ Error registered");
+  };
+
+  const updateErrorStatus=async(err,newStatus)=>{
+    const now=new Date().toISOString();
+    const histEntry={status:newStatus,by:currentUser?.name||"Admin",at:now,note:""};
+    const newHistory=[...(err.statusHistory||[]),histEntry];
+    try{await supabase.from("jacket_errors").update({status:newStatus,status_history:JSON.stringify(newHistory),updated_at:now}).eq("id",err.id);}catch(e){}
+    setJacketErrors(prev=>prev.map(x=>x.id!==err.id?x:{...x,status:newStatus,statusHistory:newHistory,updated_at:now}));
+    if(selectedError?.id===err.id)setSelectedError(s=>({...s,status:newStatus,statusHistory:newHistory,updated_at:now}));
+    logActivity(rtl?"تحديث حالة خطأ":"Error status updated",`${err.order_id} — ${rtl?ERROR_STATUSES_AR[newStatus-1]:ERROR_STATUSES_EN[newStatus-1]}`);
+    showT(rtl?"تم تحديث الحالة":"Status updated");
+  };
+
+  const addJacketNote=async()=>{
+    if(!noteText.trim()){showT(rtl?"اكتب ملاحظة":"Write a note","error");return;}
+    const now=new Date().toISOString();
+    const note={text:noteText.trim(),by:currentUser?.name||"Admin",at:now};
+    const newNotes=[...(selectedError.notes||[]),note];
+    try{await supabase.from("jacket_errors").update({notes:JSON.stringify(newNotes),updated_at:now}).eq("id",selectedError.id);}catch(e){}
+    setJacketErrors(prev=>prev.map(x=>x.id!==selectedError.id?x:{...x,notes:newNotes,updated_at:now}));
+    setSelectedError(s=>({...s,notes:newNotes,updated_at:now}));
+    setNoteText("");setShowAddNote(false);
+    showT(rtl?"تمت إضافة الملاحظة":"Note added");
+  };
+
+  const deleteJacketError=async(err)=>{
+    if(!window.confirm(rtl?"حذف هذا السجل؟":"Delete this record?"))return;
+    try{await supabase.from("jacket_errors").delete().eq("id",err.id);}catch(e){}
+    setJacketErrors(prev=>prev.filter(x=>x.id!==err.id));
+    if(selectedError?.id===err.id){setSelectedError(null);setPage("errors");}
+    showT(rtl?"تم الحذف":"Deleted");
   };
 
   // ── Login
@@ -686,6 +748,7 @@ export default function App(){
         </div>
         {NI("dashboard","📊",t.dashboard,!(currentUser.role==="admin"||currentUser.dashboard!==false))}
         {NI("orders","📋",t.orders,!can("orders"))}
+        {NI("errors","🔧",rtl?"أخطاء الجاكيتات":"Jacket Errors",!can("orders"))}
         {NI("suppliers","🏭",t.suppliers,!can("suppliers"))}
         {NI("reports","📈",t.reports,!can("reports"))}
         {NI("users","👥",t.users,currentUser.role!=="admin")}
@@ -825,6 +888,7 @@ export default function App(){
               {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"2px solid "+(o.isUrgent?"#F97316":bc),borderRadius:8,padding:"8px 16px",fontWeight:800,cursor:"pointer",color:o.isUrgent?"#F97316":tm,fontSize:13}}>
                 ⚡ {o.isUrgent?(rtl?"إلغاء المستعجل":"Remove Urgent"):(rtl?"تعليم مستعجل":"Mark Urgent")}
               </button>}
+              {can("orders")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
               {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
@@ -1146,6 +1210,138 @@ export default function App(){
             ))}
           </div>
         </div>}
+        {/* JACKET ERRORS */}
+        {page==="errors"&&can("orders")&&(()=>{
+          const ESC=ERROR_STATUS_COLORS;
+          const esl=(s)=>rtl?ERROR_STATUSES_AR[s-1]:ERROR_STATUSES_EN[s-1];
+          const filtErr=jacketErrors.filter(e=>{
+            const q=errorSearch.toLowerCase();
+            if(q&&!e.order_id?.toLowerCase().includes(q)&&!e.customer_name?.toLowerCase().includes(q)&&!e.customer_phone?.includes(q)&&!e.jacket_owner?.toLowerCase().includes(q))return false;
+            if(errorStatusFilter&&e.status!==errorStatusFilter)return false;
+            if(errorDateFrom&&e.created_at?.slice(0,10)<errorDateFrom)return false;
+            if(errorDateTo&&e.created_at?.slice(0,10)>errorDateTo)return false;
+            return true;
+          }).sort((a,b)=>new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at));
+          const isOverdue=(e)=>e.status<9&&e.status!==10&&new Date()-new Date(e.updated_at||e.created_at)>7*86400000;
+          if(selectedError){
+            const e=jacketErrors.find(x=>x.id===selectedError.id)||selectedError;
+            const sc2=ESC[e.status-1]||ESC[0];
+            return <div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+                <button onClick={()=>setSelectedError(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
+                <h1 style={{fontSize:20,fontWeight:800,margin:0,flex:1}}>🔧 {e.jacket_owner} — {e.order_id}</h1>
+                <span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"5px 14px",fontWeight:700,fontSize:12}}>{esl(e.status)}</span>
+                <button onClick={()=>{setPage("detail");const o=orders.find(x=>x.id===e.order_id);if(o)setSelected(o);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {rtl?"فتح الطلب":"Open Order"}</button>
+                {currentUser.role==="admin"&&<button onClick={()=>deleteJacketError(e)} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑</button>}
+              </div>
+              <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>👤 {rtl?"معلومات الجاكيت":"Jacket Info"}</h3>
+                  {[[rtl?"رقم الطلب":"Order ID",e.order_id],[rtl?"اسم العميل":"Customer",e.customer_name||"--"],[rtl?"رقم الهاتف":"Phone",e.customer_phone||"--"],[rtl?"صاحب الجاكيت":"Jacket Owner",e.jacket_owner],[rtl?"نوع الجاكيت":"Type",e.jacket_type||"--"],[rtl?"المقاس":"Size",e.jacket_size||"--"],[rtl?"تاريخ التسجيل":"Registered",e.created_at?.slice(0,10)||"--"],[rtl?"آخر تحديث":"Last Update",e.updated_at?.slice(0,10)||"--"]].map(([k,v])=>(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+bc}}>
+                      <span style={{fontSize:12,color:tm}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
+                    </div>
+                  ))}
+                  {e.error_image_url&&<div style={{marginTop:12}}><img src={e.error_image_url} alt="error" style={{width:"100%",borderRadius:8,maxHeight:200,objectFit:"cover"}} onError={ev=>ev.target.style.display="none"}/></div>}
+                </div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>⚠️ {rtl?"وصف الخطأ":"Error Description"}</h3>
+                  <p style={{fontSize:13,color:tp,lineHeight:1.6,margin:"0 0 16px"}}>{e.error_description}</p>
+                  <h3 style={{margin:"0 0 10px",fontSize:13,fontWeight:700}}>🔄 {rtl?"تغيير الحالة":"Change Status"}</h3>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {ERROR_STATUSES_AR.map((_,i)=>{
+                      const sIdx=i+1,sc3=ESC[i];
+                      return <button key={sIdx} onClick={()=>updateErrorStatus(e,sIdx)} style={{background:e.status===sIdx?sc3.color:sc3.bg,color:e.status===sIdx?"#fff":sc3.color,border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{rtl?ERROR_STATUSES_AR[i]:ERROR_STATUSES_EN[i]}</button>;
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                    <h3 style={{margin:0,fontSize:13,fontWeight:700}}>💬 {rtl?"الملاحظات":"Notes"}</h3>
+                    <button onClick={()=>setShowAddNote(true)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",fontSize:12}}>+ {rtl?"إضافة":"Add"}</button>
+                  </div>
+                  {(e.notes||[]).length===0?<p style={{color:tm,fontSize:13}}>{rtl?"لا توجد ملاحظات":"No notes yet"}</p>:
+                  [...(e.notes||[])].reverse().map((n,i)=>(
+                    <div key={i} style={{background:C.slateLight,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+                      <p style={{margin:"0 0 6px",fontSize:13,lineHeight:1.5}}>{n.text}</p>
+                      <div style={{fontSize:11,color:tm}}>{n.by} · {new Date(n.at).toLocaleString(rtl?"ar-OM":"en-GB")}</div>
+                    </div>
+                  ))}
+                  {showAddNote&&<div style={{marginTop:12}}>
+                    <textarea value={noteText} onChange={e2=>setNoteText(e2.target.value)} rows={3} placeholder={rtl?"اكتب ملاحظتك هنا...":"Write your note..."} style={{...IS,width:"100%",resize:"vertical",marginBottom:8}}/>
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={addJacketNote} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:700,cursor:"pointer",flex:1}}>{rtl?"حفظ":"Save"}</button>
+                      <button onClick={()=>{setShowAddNote(false);setNoteText("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 16px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+                    </div>
+                  </div>}
+                </div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🕒 {rtl?"سجل الحالات":"Status Timeline"}</h3>
+                  {[...(e.statusHistory||[])].reverse().map((h,i)=>{
+                    const sc4=ESC[(h.status||1)-1];
+                    return <div key={i} style={{display:"flex",gap:10,marginBottom:10,paddingBottom:10,borderBottom:"1px solid "+bc}}>
+                      <div style={{width:8,height:8,borderRadius:"50%",background:sc4.color,marginTop:5,flexShrink:0}}/>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:700,color:sc4.color}}>{rtl?ERROR_STATUSES_AR[(h.status||1)-1]:ERROR_STATUSES_EN[(h.status||1)-1]}</div>
+                        <div style={{fontSize:11,color:tm}}>{h.by} · {new Date(h.at).toLocaleString(rtl?"ar-OM":"en-GB")}</div>
+                      </div>
+                    </div>;
+                  })}
+                </div>
+              </div>
+            </div>;
+          }
+          return <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+              <div>
+                <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🔧 {rtl?"الجاكيتات التي بها أخطاء":"Jacket Errors"}</h1>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {ERROR_STATUSES_AR.map((_,i)=>{const cnt=jacketErrors.filter(e=>e.status===i+1).length;if(!cnt)return null;const sc2=ESC[i];return <span key={i} style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rtl?ERROR_STATUSES_AR[i]:ERROR_STATUSES_EN[i]} ({cnt})</span>;})}
+                </div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
+              <input value={errorSearch} onChange={e=>setErrorSearch(e.target.value)} placeholder={rtl?"بحث برقم الطلب أو العميل...":"Search by order, customer..."} style={{...IS,minWidth:220,width:"auto"}}/>
+              <select value={errorStatusFilter} onChange={e=>setErrorStatusFilter(Number(e.target.value))} style={{...IS,width:"auto"}}>
+                <option value={0}>{rtl?"جميع الحالات":"All Statuses"}</option>
+                {ERROR_STATUSES_AR.map((s,i)=><option key={i} value={i+1}>{rtl?s:ERROR_STATUSES_EN[i]}</option>)}
+              </select>
+              <input type="date" value={errorDateFrom} onChange={e=>setErrorDateFrom(e.target.value)} style={{...IS,width:"auto"}}/>
+              <input type="date" value={errorDateTo} onChange={e=>setErrorDateTo(e.target.value)} style={{...IS,width:"auto"}}/>
+              {(errorSearch||errorStatusFilter||errorDateFrom||errorDateTo)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);setErrorDateFrom("");setErrorDateTo("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm,fontSize:13}}>{rtl?"مسح":"Clear"}</button>}
+              <span style={{fontSize:13,color:tm,marginRight:"auto"}}>{filtErr.length} {rtl?"سجل":"records"}</span>
+            </div>
+            {filtErr.length===0?<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}><div style={{fontSize:32,marginBottom:10}}>✅</div><div style={{fontSize:14,fontWeight:600}}>{rtl?"لا توجد أخطاء مسجلة":"No error records found"}</div></div>:
+            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"صاحب الجاكيت":"Jacket Owner",rtl?"النوع":"Type",rtl?"المقاس":"Size",rtl?"الحالة":"Status",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {filtErr.map((e,i)=>{
+                      const sc2=ESC[e.status-1]||ESC[0];
+                      const overdue=isOverdue(e);
+                      return <tr key={e.id} style={{borderTop:"1px solid "+bc,background:overdue?"#FFF7ED":i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
+                        <td style={{padding:"12px 14px",fontWeight:700,color:"#E05E5C"}}>{overdue&&<span title={rtl?"متأخرة":"Overdue"}>⚠️ </span>}{e.order_id}</td>
+                        <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{e.customer_name||"--"}</div><div style={{fontSize:11,color:tm}}>{e.customer_phone}</div></td>
+                        <td style={{padding:"12px 14px",fontWeight:600}}>{e.jacket_owner}</td>
+                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.jacket_type||"--"}</td>
+                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.jacket_size||"--"}</td>
+                        <td style={{padding:"12px 14px"}}><span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{esl(e.status)}</span></td>
+                        <td style={{padding:"12px 14px",color:tm,fontSize:12,whiteSpace:"nowrap"}}>{e.updated_at?.slice(0,10)||e.created_at?.slice(0,10)||"--"}</td>
+                        <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedError(e)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
+                      </tr>;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>}
+          </div>;
+        })()}
+
         {/* EXPENSES */}
         {page==="expenses"&&currentUser.role==="admin"&&(()=>{
           const expCats=rtl?EXPENSE_CATS_AR:EXPENSE_CATS_EN;
@@ -1381,6 +1577,43 @@ export default function App(){
       </main>
 
       {/* NEW ORDER MODAL */}
+      {/* NEW JACKET ERROR MODAL */}
+      {showNewError&&newErrorOrderId&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowNewError(false)}>
+        <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
+          <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>🔧 {rtl?"تسجيل خطأ جاكيت":"Register Jacket Error"}</h2>
+          <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{rtl?"الطلب:":"Order:"} <b>{newErrorOrderId}</b></p>
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"اسم صاحب الجاكيت *":"Jacket Owner Name *"}</label>
+              <input value={newErrorForm.jacketOwner} onChange={e=>setNewErrorForm(p=>({...p,jacketOwner:e.target.value}))} placeholder={rtl?"اسم الطالب / الشخص":"Student / Person name"} style={IS}/>
+            </div>
+            <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"نوع الجاكيت":"Jacket Type"}</label>
+                <select value={newErrorForm.jacketType} onChange={e=>setNewErrorForm(p=>({...p,jacketType:e.target.value}))} style={IS}>
+                  <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
+                  {ORDER_TYPES_EN.map((tp2,i)=><option key={i} value={ORDER_TYPES_EN[i]}>{rtl?ORDER_TYPES_AR[i]:tp2}</option>)}
+                </select>
+              </div>
+              <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"المقاس":"Size"}</label>
+                <select value={newErrorForm.jacketSize} onChange={e=>setNewErrorForm(p=>({...p,jacketSize:e.target.value}))} style={IS}>
+                  <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
+                  {JACKET_SIZES.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"وصف الخطأ *":"Error Description *"}</label>
+              <textarea value={newErrorForm.errorDescription} onChange={e=>setNewErrorForm(p=>({...p,errorDescription:e.target.value}))} rows={3} placeholder={rtl?"اشرح طبيعة الخطأ بالتفصيل...":"Describe the error in detail..."} style={{...IS,resize:"vertical"}}/>
+            </div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"رابط صورة الخطأ (اختياري)":"Error Image URL (optional)"}</label>
+              <input value={newErrorForm.errorImageUrl} onChange={e=>setNewErrorForm(p=>({...p,errorImageUrl:e.target.value}))} placeholder="https://..." style={IS}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
+            <button onClick={()=>setShowNewError(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+            <button onClick={saveNewJacketError} style={{background:"#DC2626",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"تسجيل الخطأ":"Register Error"}</button>
+          </div>
+        </div>
+      </div>}
+
       {showNew&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowNew(false),setDupWarning(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:480,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{t.createOrder}</h2>
