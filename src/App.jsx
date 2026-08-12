@@ -145,6 +145,7 @@ export default function App(){
   const [newErrorForm,setNewErrorForm]=useState({jacketOwner:"",jacketType:"",jacketSize:"",errorDescription:"",errorImageUrl:""});
   const [errorSearch,setErrorSearch]=useState("");
   const [errorStatusFilter,setErrorStatusFilter]=useState(0);
+  const [errorSupFilter,setErrorSupFilter]=useState("");
   const [errorDateFrom,setErrorDateFrom]=useState("");
   const [errorDateTo,setErrorDateTo]=useState("");
   const [showAddNote,setShowAddNote]=useState(false);
@@ -1249,6 +1250,7 @@ export default function App(){
             const q=errorSearch.toLowerCase();
             if(q&&!o.id.toLowerCase().includes(q)&&!o.customer?.toLowerCase().includes(q)&&!o.phone?.includes(q))return false;
             if(errorStatusFilter&&o.errorSubStatus!==errorStatusFilter)return false;
+            if(errorSupFilter&&o.supplier!==errorSupFilter)return false;
             return true;
           }).sort((a,b)=>new Date(b.updated||b.date)-new Date(a.updated||a.date));
           if(selectedError){
@@ -1329,7 +1331,11 @@ export default function App(){
                 <option value={-1}>{rtl?"لم تُحدَّد بعد":"Not set yet"}</option>
                 {ERROR_SUB_STATUSES_AR.map((s,i)=><option key={i} value={i+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i]}</option>)}
               </select>
-              {(errorSearch||errorStatusFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm}}>{rtl?"مسح":"Clear"}</button>}
+              <select value={errorSupFilter} onChange={e=>setErrorSupFilter(e.target.value)} style={{...IS,width:"auto"}}>
+                <option value="">{rtl?"جميع الموردين":"All Suppliers"}</option>
+                {suppliers.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+              {(errorSearch||errorStatusFilter||errorSupFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);setErrorSupFilter("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm}}>{rtl?"مسح":"Clear"}</button>}
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
               {ERROR_SUB_STATUSES_AR.map((_,i)=>{const cnt=errorOrders.filter(o=>o.errorSubStatus===i+1).length;if(!cnt)return null;const sc2=ERROR_SUB_COLORS[i];return <span key={i} style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]} ({cnt})</span>;})}
