@@ -156,26 +156,10 @@ export default function App(){
   const [qzReady,setQzReady]=useState(false);
   const qzRef=useRef(null);
 
-  useEffect(()=>{
-    const script=document.createElement("script");
-    script.src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
-    script.onload=()=>{
-      if(window.qz){
-        qzRef.current=window.qz;
-        window.qz.security.setCertificatePromise(()=>Promise.resolve());
-        window.qz.security.setSignatureAlgorithm("SHA512");
-        window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
-        window.qz.websocket.connect().then(()=>{setQzReady(true);}).catch(()=>{});
-      }
-    };
-    document.head.appendChild(script);
-    return()=>{try{window.qz?.websocket.disconnect();}catch(e){}};
-  },[]);
-
   const generateBarcodeSVG=(text)=>{
     let rects=[];let x=10;
     const narrow=2,wide=5,gap=3;
-    const safeText=(text||"").toUpperCase().replace(/[^0-9A-Z\-\.]/g,"").slice(0,20);
+    const safeText=(text||"").toUpperCase().replace(/[^0-9A-Z\-\.]/g,"").slice(0,20)||"ORDER";
     for(let i=0;i<safeText.length;i++){
       const code=safeText.charCodeAt(i);
       const pat=code%2===0?[wide,narrow,wide,narrow,narrow]:[narrow,wide,narrow,wide,narrow];
@@ -189,9 +173,35 @@ export default function App(){
     return rects.join("");
   };
 
+  useEffect(()=>{
+    const script=document.createElement("script");
+    script.src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
+    script.onload=()=>{
+      if(!window.qz)return;
+      qzRef.current=window.qz;
+      window.qz.security.setCertificatePromise(()=>Promise.resolve());
+      window.qz.security.setSignatureAlgorithm("SHA512");
+      window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
+    };
+    document.head.appendChild(script);
+    const iv=setInterval(()=>{
+      try{
+        if(window.qz&&window.qz.websocket){
+          qzRef.current=window.qz;
+          const active=window.qz.websocket.isActive();
+          setQzReady(prev=>prev===active?prev:active);
+          if(!active&&window.qz.websocket.connect){
+            window.qz.websocket.connect().catch(()=>{});
+          }
+        }
+      }catch(e){}
+    },1000);
+    return()=>clearInterval(iv);
+  },[]);
+
   const printShippingLabel=async(o)=>{
-    if(!qzReady||!window.qz){
-      showT(rtl?"QZ Tray غير متصل":"QZ Tray not connected","error");
+    if(!window.qz||!window.qz.websocket.isActive()){
+      showT(rtl?"QZ Tray غير متصل — تأكد إنه شغّال":"QZ Tray not connected","error");
       return;
     }
     try{
@@ -202,36 +212,31 @@ export default function App(){
       const jackets=String(o.jackets||0);
       const orderType=o.orderType||(rtl?"غير محدد":"N/A");
       const cfg=window.qz.configs.create("PM-241-BT",{size:{width:4,height:6},units:"in",density:203});
-      const html=`<html><head><style>
-        *{margin:0;padding:0;box-sizing:border-box;}
-        body{width:100mm;background:#fff;color:#000;font-family:Arial,sans-serif;}
-        .hdr{border-bottom:3px solid #000;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;}
-        .brand{font-size:24px;font-weight:900;letter-spacing:2px;}
-        .sec{padding:8px 10px;border-bottom:2px solid #000;}
-        .lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}
-        .val{font-size:20px;font-weight:900;}
-        .row{display:flex;border-bottom:2px solid #000;}
-        .col{flex:1;padding:8px 10px;}
-        .col+.col{border-left:2px solid #000;}
-        .bc{padding:10px;text-align:center;}
-        .bt{font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;margin-top:4px;}
-      </style></head><body>
-        <div class="hdr"><div class="brand">THAWB</div><div style="font-size:9px;font-weight:700">ثوب سينيورز</div></div>
-        <div class="sec"><div class="lbl">العميل / Customer</div><div class="val">${customer}</div><div style="font-size:13px;font-weight:700;direction:ltr">${phone}</div></div>
-        <div class="sec"><div class="lbl">منطقة التوصيل / Delivery Area</div><div class="val">${area}</div></div>
-        <div class="row">
-          <div class="col"><div class="lbl">نوع الطلب</div><div style="font-size:12px;font-weight:900">${orderType}</div></div>
-          <div class="col"><div class="lbl">الجاكيتات</div><div style="font-size:12px;font-weight:900">${jackets}</div></div>
-        </div>
-        <div class="bc">
-          <svg xmlns="http://www.w3.org/2000/svg" width="260" height="60">${generateBarcodeSVG(orderId)}</svg>
-          <div class="bt">${orderId}</div>
-        </div>
-      </body></html>`;
+      const html="<html><head><style>"+
+        "*{margin:0;padding:0;box-sizing:border-box;}"+
+        "body{width:100mm;background:#fff;color:#000;font-family:Arial,sans-serif;}"+
+        ".hdr{border-bottom:3px solid #000;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;}"+
+        ".brand{font-size:24px;font-weight:900;letter-spacing:2px;}"+
+        ".sec{padding:8px 10px;border-bottom:2px solid #000;}"+
+        ".lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}"+
+        ".val{font-size:20px;font-weight:900;}"+
+        ".row{display:flex;border-bottom:2px solid #000;}"+
+        ".col{flex:1;padding:8px 10px;}"+
+        ".col2{border-left:2px solid #000;}"+
+        ".bc{padding:10px;text-align:center;}"+
+        ".bt{font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;margin-top:4px;}"+
+        "</style></head><body>"+
+        "<div class='hdr'><div class='brand'>THAWB</div><div style='font-size:9px;font-weight:700'>ثوب سينيورز</div></div>"+
+        "<div class='sec'><div class='lbl'>العميل / Customer</div><div class='val'>"+customer+"</div><div style='font-size:13px;font-weight:700;direction:ltr'>"+phone+"</div></div>"+
+        "<div class='sec'><div class='lbl'>منطقة التوصيل / Delivery Area</div><div class='val'>"+area+"</div></div>"+
+        "<div class='row'><div class='col'><div class='lbl'>نوع الطلب</div><div style='font-size:12px;font-weight:900'>"+orderType+"</div></div>"+
+        "<div class='col col2'><div class='lbl'>الجاكيتات</div><div style='font-size:12px;font-weight:900'>"+jackets+"</div></div></div>"+
+        "<div class='bc'><svg xmlns='http://www.w3.org/2000/svg' width='260' height='60'>"+generateBarcodeSVG(orderId)+"</svg><div class='bt'>"+orderId+"</div></div>"+
+        "</body></html>";
       await window.qz.print(cfg,[{type:"pixel",format:"html",flavor:"plain",data:html}]);
       showT(rtl?"✅ تمت الطباعة":"✅ Printed!");
     }catch(err){
-      showT((rtl?"خطأ: ":"Error: ")+(err.message||err.toString()),"error");
+      showT((rtl?"خطأ: ":"Error: ")+(err&&err.message?err.message:String(err)),"error");
     }
   };
   const [search,setSearch]=useState("");
