@@ -165,15 +165,21 @@ export default function App(){
       window.qz.security.setCertificatePromise(()=>Promise.resolve());
       window.qz.security.setSignatureAlgorithm("SHA512");
       window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
-      const checkActive=()=>{
+      const onConnect=()=>setQzReady(true);
+      const onDisconnect=()=>setQzReady(false);
+      window.qz.websocket.setClosedCallbacks(onDisconnect);
+      window.qz.websocket.setErrorCallbacks(()=>{});
+      const doConnect=()=>{
         if(window.qz.websocket.isActive()){setQzReady(true);return;}
-        window.qz.websocket.connect({usingSecure:false}).then(()=>setQzReady(true)).catch(()=>{
-          window.qz.websocket.connect({usingSecure:true}).then(()=>setQzReady(true)).catch(()=>{});
-        });
+        window.qz.websocket.connect({usingSecure:false}).then(onConnect).catch(()=>
+          window.qz.websocket.connect({usingSecure:true}).then(onConnect).catch(()=>{})
+        );
       };
-      checkActive();
-      const poll=setInterval(()=>{if(window.qz.websocket.isActive()){setQzReady(true);clearInterval(poll);}},1000);
-      setTimeout(()=>clearInterval(poll),15000);
+      doConnect();
+      const iv=setInterval(()=>{
+        if(window.qz?.websocket?.isActive())setQzReady(true);
+      },500);
+      setTimeout(()=>clearInterval(iv),10000);
     };
     document.head.appendChild(script);
     return()=>{try{window.qz?.websocket.disconnect();}catch(e){}};
