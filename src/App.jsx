@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import * as XLSX from "xlsx";
 
@@ -145,7 +145,6 @@ export default function App(){
   const [newErrorForm,setNewErrorForm]=useState({jacketOwner:"",jacketType:"",jacketSize:"",errorDescription:"",errorImageUrl:""});
   const [errorSearch,setErrorSearch]=useState("");
   const [errorStatusFilter,setErrorStatusFilter]=useState(0);
-  const [errorSupFilter,setErrorSupFilter]=useState("");
   const [errorDateFrom,setErrorDateFrom]=useState("");
   const [errorDateTo,setErrorDateTo]=useState("");
   const [showAddNote,setShowAddNote]=useState(false);
@@ -154,6 +153,112 @@ export default function App(){
   // ── Print/Reports
   const [showPrint,setShowPrint]=useState(false);
   const [printO,setPrintO]=useState(null);
+  const [qzReady,setQzReady]=useState(false);
+  const qzRef=useRef(null);
+
+  useEffect(()=>{
+    const script=document.createElement("script");
+    script.src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
+    script.onload=()=>{
+      if(window.qz){
+        qzRef.current=window.qz;
+        window.qz.security.setCertificatePromise(()=>Promise.resolve());
+        window.qz.security.setSignatureAlgorithm("SHA512");
+        window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
+        window.qz.websocket.connect().then(()=>{setQzReady(true);}).catch(()=>{});
+      }
+    };
+    document.head.appendChild(script);
+    return()=>{try{window.qz?.websocket.disconnect();}catch(e){}};
+  },[]);
+
+  const printShippingLabel=async(o)=>{
+    if(!qzReady||!qzRef.current){
+      showT(rtl?"QZ Tray غير متصل — تأكد إنه شغّال":"QZ Tray not connected","error");
+      return;
+    }
+    try{
+      const cfg=qzRef.current.configs.create("PM-241-BT",{size:{width:4,height:6},units:"in",colorType:"blackwhite",density:203});
+      const orderId=o.id||"";
+      const customer=o.customer||"--";
+      const phone=o.phone||"";
+      const area=o.deliveryArea||"--";
+      const jackets=String(o.jackets||0);
+      const orderType=o.orderType||(rtl?"غير محدد":"N/A");
+      const dateStr=new Date().toLocaleDateString(rtl?"ar-OM":"en-GB");
+      const data=[
+        {type:"pixel",format:"html",flavor:"plain",data:`
+          <html><head><style>
+            *{margin:0;padding:0;box-sizing:border-box;}
+            body{width:100mm;font-family:Arial,sans-serif;color:#000;background:#fff;}
+            .header{border-bottom:3px solid #000;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;}
+            .brand{font-size:22px;font-weight:900;letter-spacing:2px;}
+            .sub{font-size:9px;font-weight:700;}
+            .section{padding:8px 10px;border-bottom:2px solid #000;}
+            .label{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}
+            .value{font-size:18px;font-weight:900;}
+            .value-sm{font-size:13px;font-weight:900;}
+            .row{display:flex;}
+            .col{flex:1;padding:8px 10px;}
+            .col-border{border-right:2px solid #000;}
+            .barcode-section{padding:10px;text-align:center;}
+            .bars{display:flex;gap:0;align-items:stretch;height:50px;justify-content:center;}
+            .bar{display:inline-block;}
+            .barcode-text{font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;margin-top:4px;}
+          </style></head><body>
+            <div class="header">
+              <div class="brand">THAWB</div>
+              <div class="sub">ثوب سينيورز</div>
+            </div>
+            <div class="section">
+              <div class="label">العميل / Customer</div>
+              <div class="value">${customer}</div>
+              <div class="value-sm" style="direction:ltr">${phone}</div>
+            </div>
+            <div class="section">
+              <div class="label">منطقة التوصيل / Delivery Area</div>
+              <div class="value">${area}</div>
+            </div>
+            <div class="row" style="border-bottom:2px solid #000">
+              <div class="col col-border">
+                <div class="label">نوع الطلب</div>
+                <div style="font-size:11px;font-weight:900">${orderType}</div>
+              </div>
+              <div class="col">
+                <div class="label">الجاكيتات</div>
+                <div style="font-size:11px;font-weight:900">${jackets}</div>
+              </div>
+            </div>
+            <div class="barcode-section">
+              <svg xmlns="http://www.w3.org/2000/svg" width="260" height="60" viewBox="0 0 260 60">
+                ${generateBarcodeSVG(orderId)}
+              </svg>
+              <div class="barcode-text">${orderId}</div>
+            </div>
+          </body></html>`}
+      ];
+      await qzRef.current.print(cfg,data);
+      showT(rtl?"✅ تمت الطباعة":"✅ Printed successfully");
+    }catch(err){
+      showT(rtl?"خطأ في الطباعة: "+err.message:"Print error: "+err.message,"error");
+    }
+  };
+
+  const generateBarcodeSVG=(text)=>{
+    const chars="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+    let bars=[];let x=10;
+    const narrow=2,wide=5,gap=2;
+    for(let i=0;i<Math.min(text.length,18);i++){
+      const pattern=[1,0,1,0,1,0,1,0,1];
+      pattern.forEach((w,j)=>{
+        const width=w===1?wide:narrow;
+        if(j%2===0)bars.push(`<rect x="${x}" y="5" width="${width}" height="45" fill="#000"/>`);
+        x+=width+(j%2===1?gap:0);
+      });
+      x+=gap;
+    }
+    return bars.join("");
+  };
   const [search,setSearch]=useState("");
   const [fStatus,setFStatus]=useState(0);
   const [fSup,setFSup]=useState("");
@@ -189,8 +294,7 @@ export default function App(){
             orderType:o.order_type||o.orderType||"",
             isUrgent:o.is_urgent||false,
             errorSubStatus:o.error_sub_status||0,
-            errorNotes:o.error_notes||[],
-            errorJacketsCount:o.error_jackets_count||0
+            errorNotes:o.error_notes||[]
           })));
         }
         if(sups&&sups.length>0){
@@ -306,13 +410,6 @@ export default function App(){
     const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
     (async()=>{try{await supabase.from("activity_log").insert({user_id:entry.user_id,user_name:entry.user_name,action,details});}catch(e){}})();
     setActivityLog(prev=>[entry,...prev]);
-  };
-
-  const updateErrorJacketsCount=async(o,count)=>{
-    const val=Math.max(0,Math.min(count,o.jackets));
-    try{await supabase.from("orders").update({error_jackets_count:val}).eq("id",o.id);}catch(e){}
-    setOrders(prev=>prev.map(x=>x.id!==o.id?x:{...x,errorJacketsCount:val}));
-    if(selectedError?.id===o.id)setSelectedError(s=>({...s,errorJacketsCount:val}));
   };
 
   // ── Jacket Errors
@@ -929,6 +1026,7 @@ export default function App(){
               </button>}
               {can("orders")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
+              <button onClick={()=>printShippingLabel(o)} style={{background:qzReady?"#2D7A4F":"#94A3B8",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:qzReady?"pointer":"not-allowed"}} title={qzReady?(rtl?"طباعة ستكر الشحن":"Print Shipping Label"):(rtl?"QZ Tray غير متصل":"QZ Tray not connected")}>🏷️ {rtl?"ستكر الشحن":"Shipping Label"}</button>
               {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}
@@ -1258,7 +1356,6 @@ export default function App(){
             const q=errorSearch.toLowerCase();
             if(q&&!o.id.toLowerCase().includes(q)&&!o.customer?.toLowerCase().includes(q)&&!o.phone?.includes(q))return false;
             if(errorStatusFilter&&o.errorSubStatus!==errorStatusFilter)return false;
-            if(errorSupFilter&&o.supplier!==errorSupFilter)return false;
             return true;
           }).sort((a,b)=>new Date(b.updated||b.date)-new Date(a.updated||a.date));
           if(selectedError){
@@ -1278,15 +1375,6 @@ export default function App(){
                       <span style={{fontSize:12,color:tm}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
                     </div>
                   ))}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid "+bc}}>
-                    <span style={{fontSize:12,color:tm}}>{rtl?"عدد الجاكيتات المعطوبة":"Error Jackets Count"}</span>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)-1)} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontWeight:800,fontSize:15,color:tp}}>−</button>
-                      <span style={{fontWeight:900,fontSize:18,color:"#DC2626",minWidth:30,textAlign:"center"}}>{o.errorJacketsCount||0}</span>
-                      <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)+1)} style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontWeight:800,fontSize:15,color:"#DC2626"}}>+</button>
-                      <span style={{fontSize:12,color:tm}}>{rtl?"من":"/ "}{o.jackets}</span>
-                    </div>
-                  </div>
                 </div>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔄 {rtl?"الحالة الفرعية":"Sub-Status"}</h3>
@@ -1348,11 +1436,7 @@ export default function App(){
                 <option value={-1}>{rtl?"لم تُحدَّد بعد":"Not set yet"}</option>
                 {ERROR_SUB_STATUSES_AR.map((s,i)=><option key={i} value={i+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i]}</option>)}
               </select>
-              <select value={errorSupFilter} onChange={e=>setErrorSupFilter(e.target.value)} style={{...IS,width:"auto"}}>
-                <option value="">{rtl?"جميع الموردين":"All Suppliers"}</option>
-                {suppliers.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
-              {(errorSearch||errorStatusFilter||errorSupFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);setErrorSupFilter("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm}}>{rtl?"مسح":"Clear"}</button>}
+              {(errorSearch||errorStatusFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm}}>{rtl?"مسح":"Clear"}</button>}
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
               {ERROR_SUB_STATUSES_AR.map((_,i)=>{const cnt=errorOrders.filter(o=>o.errorSubStatus===i+1).length;if(!cnt)return null;const sc2=ERROR_SUB_COLORS[i];return <span key={i} style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]} ({cnt})</span>;})}
@@ -1363,7 +1447,7 @@ export default function App(){
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"الجاكيتات":"Jackets",rtl?"منها خطأ":"Error Count",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"الجاكيتات":"Jackets",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {filtErrOrd.map((o,i)=>{
@@ -1373,14 +1457,6 @@ export default function App(){
                         <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{o.customer||"--"}</div><div style={{fontSize:11,color:tm}}>{o.phone}</div></td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.supplier||"--"}</td>
                         <td style={{padding:"12px 14px",textAlign:"center",fontWeight:700}}>{o.jackets}</td>
-                        <td style={{padding:"12px 14px",textAlign:"center"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:6,justifyContent:"center"}}>
-                            <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)-1)} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:800,color:tp}}>−</button>
-                            <span style={{fontWeight:800,color:"#DC2626",minWidth:20,textAlign:"center"}}>{o.errorJacketsCount||0}</span>
-                            <button onClick={()=>updateErrorJacketsCount(o,(o.errorJacketsCount||0)+1)} style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"3px 8px",cursor:"pointer",fontWeight:800,color:"#DC2626"}}>+</button>
-                          </div>
-                          <div style={{fontSize:10,color:tm,textAlign:"center"}}>{rtl?"من":"of"} {o.jackets}</div>
-                        </td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
                         <td style={{padding:"12px 14px"}}>
                           <select value={o.errorSubStatus||0} onChange={e2=>updateOrderSubStatus(o,Number(e2.target.value))} style={{background:sc2.bg,color:sc2.color,border:"1px solid "+sc2.color,borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
