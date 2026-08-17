@@ -93,6 +93,8 @@ export default function App(){
   // ── Payments
   const [showPay,setShowPay]=useState(false);
   const [payTarget,setPayTarget]=useState(null);
+  const [editPayIdx,setEditPayIdx]=useState(null);
+  const [editPayForm,setEditPayForm]=useState({amount:"",date:""});
 
   // ── Supplier modals
   const [showAddSup,setShowAddSup]=useState(false);
@@ -267,7 +269,7 @@ export default function App(){
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
-            payments:(o.payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
+            payments:(o.payments||[]).map(p=>({id:p.id,date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
             history:o.history||[],
             extras:Number(o.extras)||0,
             deliveryArea:o.delivery_area||"",
@@ -660,15 +662,50 @@ export default function App(){
 
   const addPay=async(oid,amt,ref,note)=>{
     const d=new Date().toISOString().slice(0,10);
-    const newPay={date:d,amount:amt,by:currentUser?.name||"Admin",ref,note};
+    let newId=null;
     const cur=orders.find(o=>o.id===oid);
     try{
-      await supabase.from("payments").insert({order_id:oid,amount:amt,by:currentUser?.name||"Admin",ref,note,date:d});
+      const {data}=await supabase.from("payments").insert({order_id:oid,amount:amt,by:currentUser?.name||"Admin",ref,note,date:d}).select().single();
+      if(data)newId=data.id;
       await supabase.from("orders").update({paid:(cur?.paid||0)+amt,updated:d}).eq("id",oid);
     }catch(e){}
+    const newPay={id:newId,date:d,amount:amt,by:currentUser?.name||"Admin",ref,note};
     setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid+amt,updated:d,payments:[...o.payments,newPay]}));
     logActivity(rtl?"دفعة جديدة":"New payment",`${oid} — ${fmt(amt)}`);
     showT(t.paymentSaved);setShowPay(false);setPayTarget(null);
+  };
+
+  const editPayment=async(oid,payIdx,newAmt,newDate)=>{
+    const order=orders.find(o=>o.id===oid);
+    if(!order)return;
+    const pay=order.payments[payIdx];
+    const oldAmt=pay.amount;
+    const diff=newAmt-oldAmt;
+    const d=new Date().toISOString().slice(0,10);
+    try{
+      if(pay.id)await supabase.from("payments").update({amount:newAmt,date:newDate}).eq("id",pay.id);
+      await supabase.from("orders").update({paid:(order.paid||0)+diff,updated:d}).eq("id",oid);
+    }catch(e){}
+    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid+diff,updated:d,payments:o.payments.map((p,i)=>i!==payIdx?p:{...p,amount:newAmt,date:newDate})}));
+    if(selected?.id===oid)setSelected(s=>({...s,paid:s.paid+diff,payments:s.payments.map((p,i)=>i!==payIdx?p:{...p,amount:newAmt,date:newDate})}));
+    logActivity(rtl?"تعديل دفعة":"Payment edited",`${oid} — ${fmt(oldAmt)} → ${fmt(newAmt)}`);
+    setEditPayIdx(null);showT(rtl?"تم تعديل الدفعة":"Payment updated");
+  };
+
+  const deletePayment=async(oid,payIdx)=>{
+    if(!window.confirm(rtl?"حذف هذه الدفعة؟":"Delete this payment?"))return;
+    const order=orders.find(o=>o.id===oid);
+    if(!order)return;
+    const pay=order.payments[payIdx];
+    const d=new Date().toISOString().slice(0,10);
+    try{
+      if(pay.id)await supabase.from("payments").delete().eq("id",pay.id);
+      await supabase.from("orders").update({paid:(order.paid||0)-pay.amount,updated:d}).eq("id",oid);
+    }catch(e){}
+    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid-pay.amount,updated:d,payments:o.payments.filter((_,i)=>i!==payIdx)}));
+    if(selected?.id===oid)setSelected(s=>({...s,paid:s.paid-pay.amount,payments:s.payments.filter((_,i)=>i!==payIdx)}));
+    logActivity(rtl?"حذف دفعة":"Payment deleted",`${oid} — ${fmt(pay.amount)}`);
+    showT(rtl?"تم حذف الدفعة":"Payment deleted");
   };
 
   const updSt=async(oid,ns)=>{
@@ -1074,21 +1111,37 @@ export default function App(){
               <h3 style={{margin:"0 0 14px",fontSize:13,fontWeight:700}}>💳 {t.paymentHistory}</h3>
               {o.payments.length===0?<p style={{color:tm,fontSize:13}}>{t.noPayments}</p>:
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead><tr style={{background:C.slateLight}}>{["#",t.date,t.total,t.refNumber,t.recordedBy,t.notes].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:C.slate}}>{h}</th>)}</tr></thead>
+                <thead><tr style={{background:C.slateLight}}>{["#",t.date,t.total,t.refNumber,t.recordedBy,t.notes,...(currentUser.role==="admin"?[rtl?"إجراءات":"Actions"]:[])].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:C.slate}}>{h}</th>)}</tr></thead>
                 <tbody>
                   {o.payments.map((p,i)=>(
                     <tr key={i} style={{borderTop:"1px solid "+bc}}>
                       <td style={{padding:"8px 12px",color:tm}}>{i+1}</td>
-                      <td style={{padding:"8px 12px"}}>{p.date}</td>
-                      <td style={{padding:"8px 12px",fontWeight:700,color:"#2D7A4F"}}>{fmt(p.amount)}</td>
+                      <td style={{padding:"8px 12px"}}>
+                        {editPayIdx===i?<input type="date" value={editPayForm.date} onChange={e=>setEditPayForm(f=>({...f,date:e.target.value}))} style={{...IS,padding:"4px 8px",fontSize:12}}/>:p.date}
+                      </td>
+                      <td style={{padding:"8px 12px",fontWeight:700,color:"#2D7A4F"}}>
+                        {editPayIdx===i?<input type="number" value={editPayForm.amount} onChange={e=>setEditPayForm(f=>({...f,amount:e.target.value}))} style={{...IS,padding:"4px 8px",fontSize:12,width:90}}/>:fmt(p.amount)}
+                      </td>
                       <td style={{padding:"8px 12px",color:tm,fontFamily:"monospace",fontSize:12}}>{p.ref||"--"}</td>
                       <td style={{padding:"8px 12px",color:tm}}>{p.by}</td>
                       <td style={{padding:"8px 12px",color:tm}}>{p.note}</td>
+                      {currentUser.role==="admin"&&<td style={{padding:"8px 12px"}}>
+                        {editPayIdx===i?
+                          <div style={{display:"flex",gap:4}}>
+                            <button onClick={()=>editPayment(o.id,i,Number(editPayForm.amount),editPayForm.date)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>✓</button>
+                            <button onClick={()=>setEditPayIdx(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11,color:tm}}>✕</button>
+                          </div>:
+                          <div style={{display:"flex",gap:4}}>
+                            <button onClick={()=>{setEditPayIdx(i);setEditPayForm({amount:String(p.amount),date:p.date});}} style={{background:C.slateLight,border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:12}} title={rtl?"تعديل":"Edit"}>✏️</button>
+                            <button onClick={()=>deletePayment(o.id,i)} style={{background:"#FEF2F2",border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:12,color:"#E05E5C"}} title={rtl?"حذف":"Delete"}>🗑</button>
+                          </div>
+                        }
+                      </td>}
                     </tr>
                   ))}
                   <tr style={{borderTop:"2px solid "+bc,background:C.slateLight}}>
                     <td colSpan={2} style={{padding:"8px 12px",fontWeight:700}}>{t.totalPaid}</td>
-                    <td colSpan={4} style={{padding:"8px 12px",fontWeight:800,color:"#2D7A4F"}}>{fmt(o.paid)}</td>
+                    <td colSpan={currentUser.role==="admin"?5:4} style={{padding:"8px 12px",fontWeight:800,color:"#2D7A4F"}}>{fmt(o.paid)}</td>
                   </tr>
                 </tbody>
               </table>}
