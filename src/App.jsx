@@ -399,14 +399,22 @@ export default function App(){
     if(!newErrorForm.jacketOwner||!newErrorForm.errorDescription){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
     const order=orders.find(o=>o.id===newErrorOrderId);
     const now=new Date().toISOString();
+    const d=now.slice(0,10);
     const firstStatus={status:1,by:currentUser?.name||"Admin",at:now,note:""};
     const entry={order_id:newErrorOrderId,customer_name:order?.customer||"",customer_phone:order?.phone||"",jacket_owner:newErrorForm.jacketOwner,jacket_type:newErrorForm.jacketType,jacket_size:newErrorForm.jacketSize,error_description:newErrorForm.errorDescription,error_image_url:newErrorForm.errorImageUrl,status:1,notes:[],status_history:[firstStatus],created_at:now,updated_at:now};
     try{const {data}=await supabase.from("jacket_errors").insert({...entry,status_history:JSON.stringify([firstStatus]),notes:JSON.stringify([])}).select().single();if(data)entry.id=data.id;}catch(e){}
     setJacketErrors(prev=>[{...entry,statusHistory:[firstStatus]},...prev]);
+    // تغيير حالة الطلب تلقائياً لـ "فيه خطأ" (13) إذا لم يكن كذلك مسبقاً
+    if(order&&order.status!==13){
+      try{await supabase.from("orders").update({status:13,updated:d}).eq("id",newErrorOrderId);}catch(e){}
+      setOrders(prev=>prev.map(o=>o.id!==newErrorOrderId?o:{...o,status:13,updated:d}));
+      if(selected?.id===newErrorOrderId)setSelected(s=>({...s,status:13,updated:d}));
+      logActivity(rtl?"تحويل تلقائي لحالة خطأ":"Auto set to Has Issue",`${newErrorOrderId}`);
+    }
     logActivity(rtl?"تسجيل خطأ جاكيت":"Jacket error registered",`${newErrorOrderId} — ${newErrorForm.jacketOwner}`);
     setNewErrorForm({jacketOwner:"",jacketType:"",jacketSize:"",errorDescription:"",errorImageUrl:""});
     setShowNewError(false);setNewErrorOrderId(null);
-    showT(rtl?"✅ تم تسجيل الخطأ":"✅ Error registered");
+    showT(rtl?"✅ تم تسجيل الخطأ وتحويل الطلب لحالة خطأ":"✅ Error registered & order flagged");
   };
 
   const updateErrorStatus=async(err,newStatus)=>{
