@@ -46,7 +46,7 @@ const EXPENSE_CATS_AR=["رواتب الموظفين","إيجار المصنع / 
 const EXPENSE_CATS_EN=["Staff Salaries","Factory / Shop Rent","Raw Materials","Shipping & Delivery","Utilities","Marketing & Ads","Miscellaneous"];
 const EXPENSE_ICONS=["👤","🏭","🧵","🚚","💡","📣","📦"];
 
-const DEFAULT_TYPE_COSTS={"Cotton Full":0,"Full Leather":0,"Cotton & Leather":0,"Hoodie":0,"Mix":0};
+const DEFAULT_TYPE_COSTS={"Cotton Full":0,"Full Leather":0,"Cotton & Leather":0,"Hoodie":0,"Mix":0,"_default":0};
 const DEFAULT_EXCHANGE_RATE=9.54; // 1 OMR = 9.54 AED
 
 const SEED_SETTINGS={
@@ -376,9 +376,11 @@ export default function App(){
   const fmtOMR=(n)=>Number(n||0).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})+" OMR";
   // تكلفة النوع بالدرهم مباشرة (المستخدم يدخل السعر بالدرهم لكل جاكيت)
   const orderExpectedCostAED=(o)=>{
-    const typeCost=typeCosts[o.orderType]||0;
+    const hasType=o.orderType&&typeCosts[o.orderType]>0;
+    const typeCost=hasType?typeCosts[o.orderType]:(typeCosts._default||0);
     return (Number(o.jackets)||0)*typeCost;
   };
+  const ordersWithoutType=orders.filter(o=>!o.orderType||!(typeCosts[o.orderType]>0));
   const totalExpectedCostAED=orders.reduce((s,o)=>s+orderExpectedCostAED(o),0);
   const totalPaidToSuppliersAED=supPayments.reduce((s,p)=>s+Number(p.amount||0),0);
   const expectedRemainingAED=totalExpectedCostAED-totalPaidToSuppliersAED;
@@ -1789,7 +1791,18 @@ export default function App(){
                       <div style={{fontSize:16,fontWeight:800,color:tp}}>{fmtAED(typeCosts[type]||0)}</div>
                     </div>
                   ))}
+                  <div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:10,padding:"10px 16px",minWidth:140}}>
+                    <div style={{fontSize:12,color:"#92400E",marginBottom:4}}>{rtl?"السعر الافتراضي (بدون نوع)":"Default (No Type)"}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:"#B45309"}}>{fmtAED(typeCosts._default||0)}</div>
+                  </div>
                 </div>
+                {ordersWithoutType.length>0&&<div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:10,padding:"12px 16px",marginTop:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span style={{fontSize:20}}>⚠️</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#92400E"}}>{rtl?`${ordersWithoutType.length} طلب بدون نوع محدد (يُحسب بالسعر الافتراضي)`:`${ordersWithoutType.length} orders without a set type (using default rate)`}</div>
+                    <div style={{fontSize:11,color:"#B45309",marginTop:2}}>{rtl?"عدّل نوع الطلب من صفحة الطلبات لحساب أدق":"Set order type from Orders page for accurate cost"}</div>
+                  </div>
+                </div>}
               </div>
             </div>}
 
@@ -2034,6 +2047,10 @@ export default function App(){
                       <input type="number" value={costsForm[type]||0} onChange={e=>setCostsForm(f=>({...f,[type]:e.target.value}))} style={IS} step="0.01"/>
                     </div>
                   ))}
+                  <div style={{borderTop:"1px solid "+bc,paddingTop:12}}>
+                    <label style={{display:"block",fontSize:12,fontWeight:700,color:"#B45309",marginBottom:5}}>⚠️ {rtl?"السعر الافتراضي — للطلبات بدون نوع (AED)":"Default Rate — orders without type (AED)"}</label>
+                    <input type="number" value={costsForm._default||0} onChange={e=>setCostsForm(f=>({...f,_default:e.target.value}))} style={IS} step="0.01"/>
+                  </div>
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowCostsEdit(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
