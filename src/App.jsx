@@ -46,6 +46,9 @@ const EXPENSE_CATS_AR=["رواتب الموظفين","إيجار المصنع / 
 const EXPENSE_CATS_EN=["Staff Salaries","Factory / Shop Rent","Raw Materials","Shipping & Delivery","Utilities","Marketing & Ads","Miscellaneous"];
 const EXPENSE_ICONS=["👤","🏭","🧵","🚚","💡","📣","📦"];
 
+const DEFAULT_TYPE_COSTS={"Cotton Full":0,"Full Leather":0,"Cotton & Leather":0,"Hoodie":0,"Mix":0};
+const DEFAULT_EXCHANGE_RATE=9.54; // 1 OMR = 9.54 AED
+
 const SEED_SETTINGS={
   cycleYear:"2026",
   cycleLabel:"2025-2026",
@@ -82,6 +85,25 @@ export default function App(){
   const [expCatFilter,setExpCatFilter]=useState("");
   const [expDateFrom,setExpDateFrom]=useState("");
   const [expDateTo,setExpDateTo]=useState("");
+
+  // ── Accounts (Financial)
+  const [accTab,setAccTab]=useState("overview");
+  const [typeCosts,setTypeCosts]=useState(DEFAULT_TYPE_COSTS);
+  const [exchangeRate,setExchangeRate]=useState(DEFAULT_EXCHANGE_RATE);
+  const [supPayments,setSupPayments]=useState([]);
+  const [savedReports,setSavedReports]=useState([]);
+  const [selectedAccSup,setSelectedAccSup]=useState(null);
+  const [showSupPayModal,setShowSupPayModal]=useState(false);
+  const [supPayForm,setSupPayForm]=useState({supplier:"",amount:"",date:"",method:"",ref:"",note:""});
+  const [showGenReport,setShowGenReport]=useState(false);
+  const [reportBalance,setReportBalance]=useState("");
+  const [viewingReport,setViewingReport]=useState(null);
+  const [supPaySupFilter,setSupPaySupFilter]=useState("");
+  const [supPayMethodFilter,setSupPayMethodFilter]=useState("");
+  const [showRateEdit,setShowRateEdit]=useState(false);
+  const [rateEditVal,setRateEditVal]=useState("");
+  const [showCostsEdit,setShowCostsEdit]=useState(false);
+  const [costsForm,setCostsForm]=useState(DEFAULT_TYPE_COSTS);
 
   // ── Orders
   const [selected,setSelected]=useState(null);
@@ -266,6 +288,9 @@ export default function App(){
         const {data:logs}=await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(500);
         const {data:exps}=await supabase.from("expenses").select("*").order("date",{ascending:false});
         const {data:jerrs}=await supabase.from("jacket_errors").select("*").order("created_at",{ascending:false});
+        const {data:supPays}=await supabase.from("supplier_account_payments").select("*").order("date",{ascending:false});
+        const {data:finSettings}=await supabase.from("financial_settings").select("*").eq("id","main").single();
+        const {data:reports}=await supabase.from("financial_reports").select("*").order("created_at",{ascending:false});
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
@@ -312,6 +337,12 @@ export default function App(){
         if(logs)setActivityLog(logs);
         if(exps)setExpenses(exps);
         if(jerrs)setJacketErrors(jerrs.map(e=>({...e,notes:e.notes||[],statusHistory:e.status_history||[]})));
+        if(supPays)setSupPayments(supPays);
+        if(finSettings){
+          if(finSettings.type_costs)setTypeCosts({...DEFAULT_TYPE_COSTS,...finSettings.type_costs});
+          if(finSettings.exchange_rate)setExchangeRate(Number(finSettings.exchange_rate));
+        }
+        if(reports)setSavedReports(reports);
         try{
           const savedUserId=localStorage.getItem("thawb_user_id");
           if(savedUserId){
@@ -338,6 +369,20 @@ export default function App(){
   const showT=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
   const can=(perm)=>currentUser?.perms?.[perm]||currentUser?.role==="admin";
+
+  // ── Financial helpers
+  const toAED=(omr)=>Number(omr||0)*exchangeRate;
+  const fmtAED=(n)=>Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+" AED";
+  const fmtOMR=(n)=>Number(n||0).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})+" OMR";
+  // تكلفة النوع بالدرهم مباشرة (المستخدم يدخل السعر بالدرهم لكل جاكيت)
+  const orderExpectedCostAED=(o)=>{
+    const typeCost=typeCosts[o.orderType]||0;
+    return (Number(o.jackets)||0)*typeCost;
+  };
+  const totalExpectedCostAED=orders.reduce((s,o)=>s+orderExpectedCostAED(o),0);
+  const totalPaidToSuppliersAED=supPayments.reduce((s,p)=>s+Number(p.amount||0),0);
+  const expectedRemainingAED=totalExpectedCostAED-totalPaidToSuppliersAED;
+  const customerOutstandingOMR=orders.reduce((s,o)=>s+(Number(o.total||0)-Number(o.paid||0)),0);
 
   const saveExpense=async()=>{
     if(!newExp.date||!newExp.category||!newExp.amount){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
@@ -392,6 +437,67 @@ export default function App(){
     const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
     (async()=>{try{await supabase.from("activity_log").insert({user_id:entry.user_id,user_name:entry.user_name,action,details});}catch(e){}})();
     setActivityLog(prev=>[entry,...prev]);
+  };
+
+  // ── Financial actions
+  const saveExchangeRate=async()=>{
+    const val=Number(rateEditVal);
+    if(!val||val<=0){showT(rtl?"أدخل سعر صرف صحيح":"Enter valid rate","error");return;}
+    try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:val,type_costs:typeCosts});}catch(e){}
+    setExchangeRate(val);setShowRateEdit(false);
+    logActivity(rtl?"تحديث سعر الصرف":"Exchange rate updated",`1 OMR = ${val} AED`);
+    showT(rtl?"تم تحديث سعر الصرف":"Rate updated");
+  };
+
+  const saveTypeCosts=async()=>{
+    const cleaned={};
+    Object.keys(costsForm).forEach(k=>{cleaned[k]=Number(costsForm[k])||0;});
+    try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:exchangeRate,type_costs:cleaned});}catch(e){}
+    setTypeCosts(cleaned);setShowCostsEdit(false);
+    logActivity(rtl?"تحديث أسعار الأنواع":"Type costs updated","");
+    showT(rtl?"تم تحديث الأسعار":"Costs updated");
+  };
+
+  const saveSupplierPayment=async()=>{
+    if(!supPayForm.supplier||!supPayForm.amount||!supPayForm.date){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
+    const entry={supplier:supPayForm.supplier,amount:Number(supPayForm.amount),date:supPayForm.date,method:supPayForm.method||"",ref:supPayForm.ref||"",note:supPayForm.note||"",by:currentUser?.name||"Admin",created_at:new Date().toISOString()};
+    try{const {data}=await supabase.from("supplier_account_payments").insert(entry).select().single();if(data)entry.id=data.id;}catch(e){}
+    setSupPayments(prev=>[entry,...prev]);
+    logActivity(rtl?"دفعة مورد (حسابات)":"Supplier payment (accounts)",`${supPayForm.supplier} — ${fmtAED(Number(supPayForm.amount))}`);
+    setSupPayForm({supplier:"",amount:"",date:"",method:"",ref:"",note:""});setShowSupPayModal(false);
+    showT(rtl?"تم تسجيل الدفعة":"Payment saved");
+  };
+
+  const deleteSupplierPayment=async(pay)=>{
+    if(!window.confirm(rtl?"حذف هذه الدفعة؟":"Delete this payment?"))return;
+    try{await supabase.from("supplier_account_payments").delete().eq("id",pay.id);}catch(e){}
+    setSupPayments(prev=>prev.filter(p=>p.id!==pay.id));
+    showT(rtl?"تم الحذف":"Deleted");
+  };
+
+  const generateFinancialReport=async()=>{
+    const bal=Number(reportBalance)||0;
+    const now=new Date().toISOString();
+    const supplierBreakdown=suppliers.map(s=>{
+      const sOrders=orders.filter(o=>o.supplier===s.name);
+      const expCost=sOrders.reduce((sum,o)=>sum+orderExpectedCostAED(o),0);
+      const paid=supPayments.filter(p=>p.supplier===s.name).reduce((sum,p)=>sum+Number(p.amount||0),0);
+      return {name:s.name,orders:sOrders.length,jackets:sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),expectedCost:expCost,paid,remaining:expCost-paid};
+    });
+    const netPositionOMR=bal+customerOutstandingOMR-(expectedRemainingAED/exchangeRate);
+    const report={
+      created_at:now,created_by:currentUser?.name||"Admin",exchange_rate:exchangeRate,
+      total_orders:orders.length,total_jackets:orders.reduce((s,o)=>s+Number(o.jackets||0),0),
+      expected_cost_aed:totalExpectedCostAED,paid_suppliers_aed:totalPaidToSuppliersAED,remaining_suppliers_aed:expectedRemainingAED,
+      customer_outstanding_omr:customerOutstandingOMR,available_balance_omr:bal,
+      net_position_omr:netPositionOMR,net_position_aed:netPositionOMR*exchangeRate,
+      supplier_breakdown:supplierBreakdown
+    };
+    try{const {data}=await supabase.from("financial_reports").insert({...report,supplier_breakdown:JSON.stringify(supplierBreakdown)}).select().single();if(data)report.id=data.id;}catch(e){}
+    setSavedReports(prev=>[report,...prev]);
+    logActivity(rtl?"إنشاء تقرير مالي":"Financial report generated",new Date().toLocaleDateString());
+    setReportBalance("");setShowGenReport(false);
+    showT(rtl?"تم إنشاء التقرير":"Report generated");
   };
 
   // ── Jacket Errors
@@ -914,6 +1020,7 @@ export default function App(){
         {NI("reports","📈",t.reports,!can("reports"))}
         {NI("users","👥",t.users,currentUser.role!=="admin")}
         {currentUser.role==="admin"&&NI("expenses","💸",rtl?"المصاريف":"Expenses")}
+        {currentUser.role==="admin"&&NI("accounts","🧮",rtl?"الحسابات":"Accounts")}
         {currentUser.role==="admin"&&NI("settings","⚙️",rtl?"الإعدادات":"Settings")}
         <div style={{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.1)",paddingTop:12,display:"flex",flexDirection:"column",gap:4}}>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"rgba(255,255,255,0.08)",borderRadius:8,color:"#fff",fontSize:13,fontWeight:700}}>🌐 {lang==="en"?"العربية":"English"}</button>
@@ -1619,6 +1726,381 @@ export default function App(){
             </div>}
           </div>;
         })()}
+
+
+        {/* ACCOUNTS (Financial) */}
+        {page==="accounts"&&currentUser.role==="admin"&&(()=>{
+          const RATE=exchangeRate;
+          const netPosOMR=(bal)=>bal+customerOutstandingOMR-(expectedRemainingAED/RATE);
+          return <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
+              <h1 style={{fontSize:22,fontWeight:800,margin:0}}>🧮 {rtl?"الحسابات المالية":"Accounts"}</h1>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:tm}}>{rtl?"سعر الصرف:":"Rate:"} <b>1 OMR = {RATE} AED</b></span>
+                <button onClick={()=>{setRateEditVal(String(RATE));setShowRateEdit(true);}} style={{background:C.slateLight,border:"1px solid "+bc,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:600,color:tp}}>✏️ {rtl?"تعديل":"Edit"}</button>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap",borderBottom:"1px solid "+bc,paddingBottom:0}}>
+              {[["overview",rtl?"نظرة عامة":"Overview","📊"],["suppliers",rtl?"الموردون":"Suppliers","🏭"],["payments",rtl?"المدفوعات":"Payments","💵"],["reports",rtl?"التقارير":"Reports","📄"]].map(([tab,label,icon])=>(
+                <button key={tab} onClick={()=>{setAccTab(tab);setSelectedAccSup(null);setViewingReport(null);}} style={{background:accTab===tab?"#202F4D":"transparent",color:accTab===tab?"#fff":tm,border:"none",borderRadius:"8px 8px 0 0",padding:"10px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{icon} {label}</button>
+              ))}
+            </div>
+
+            {/* ===== OVERVIEW TAB ===== */}
+            {accTab==="overview"&&<div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:20}}>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{fontSize:12,color:tm,marginBottom:6}}>📦 {rtl?"إجمالي الجاكيتات":"Total Jackets"}</div>
+                  <div style={{fontSize:26,fontWeight:900,color:tp}}>{orders.reduce((s,o)=>s+Number(o.jackets||0),0)}</div>
+                  <div style={{fontSize:11,color:tm}}>{orders.length} {rtl?"طلب":"orders"}</div>
+                </div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{fontSize:12,color:tm,marginBottom:6}}>💰 {rtl?"التكلفة المتوقعة للموردين":"Expected Supplier Cost"}</div>
+                  <div style={{fontSize:24,fontWeight:900,color:"#202F4D"}}>{fmtAED(totalExpectedCostAED)}</div>
+                  <div style={{fontSize:11,color:tm}}>≈ {fmtOMR(totalExpectedCostAED/RATE)}</div>
+                </div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{fontSize:12,color:tm,marginBottom:6}}>✅ {rtl?"المدفوع للموردين":"Paid to Suppliers"}</div>
+                  <div style={{fontSize:24,fontWeight:900,color:"#2D7A4F"}}>{fmtAED(totalPaidToSuppliersAED)}</div>
+                  <div style={{fontSize:11,color:tm}}>≈ {fmtOMR(totalPaidToSuppliersAED/RATE)}</div>
+                </div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{fontSize:12,color:tm,marginBottom:6}}>⏳ {rtl?"المتبقي للموردين":"Expected Remaining"}</div>
+                  <div style={{fontSize:24,fontWeight:900,color:"#E05E5C"}}>{fmtAED(expectedRemainingAED)}</div>
+                  <div style={{fontSize:11,color:tm}}>≈ {fmtOMR(expectedRemainingAED/RATE)}</div>
+                </div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                  <div style={{fontSize:12,color:tm,marginBottom:6}}>👥 {rtl?"مستحقات العملاء (لنا)":"Customer Outstanding"}</div>
+                  <div style={{fontSize:24,fontWeight:900,color:"#F59E0B"}}>{fmtOMR(customerOutstandingOMR)}</div>
+                  <div style={{fontSize:11,color:tm}}>≈ {fmtAED(toAED(customerOutstandingOMR))}</div>
+                </div>
+              </div>
+              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                  <h3 style={{margin:0,fontSize:14,fontWeight:800}}>🏷️ {rtl?"أسعار التكلفة حسب النوع (بالدرهم لكل جاكيت)":"Type Costs (AED per jacket)"}</h3>
+                  <button onClick={()=>{setCostsForm({...DEFAULT_TYPE_COSTS,...typeCosts});setShowCostsEdit(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",fontSize:12}}>✏️ {rtl?"تعديل الأسعار":"Edit Costs"}</button>
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:10}}>
+                  {ORDER_TYPES_EN.map((type,i)=>(
+                    <div key={type} style={{background:C.slateLight,borderRadius:10,padding:"10px 16px",minWidth:140}}>
+                      <div style={{fontSize:12,color:tm,marginBottom:4}}>{rtl?ORDER_TYPES_AR[i]:type}</div>
+                      <div style={{fontSize:16,fontWeight:800,color:tp}}>{fmtAED(typeCosts[type]||0)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>}
+
+            {/* ===== SUPPLIERS TAB ===== */}
+            {accTab==="suppliers"&&!selectedAccSup&&<div>
+              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                      {[rtl?"المورد":"Supplier",rtl?"طلبات":"Orders",rtl?"جاكيتات":"Jackets",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {suppliers.map(s=>{
+                        const sOrders=orders.filter(o=>o.supplier===s.name);
+                        const expCost=sOrders.reduce((sum,o)=>sum+orderExpectedCostAED(o),0);
+                        const paid=supPayments.filter(p=>p.supplier===s.name).reduce((sum,p)=>sum+Number(p.amount||0),0);
+                        const remaining=expCost-paid;
+                        return <tr key={s.id} style={{borderTop:"1px solid "+bc}}>
+                          <td style={{padding:"12px 14px",fontWeight:700}}>{s.name}</td>
+                          <td style={{padding:"12px 14px",textAlign:"center"}}>{sOrders.length}</td>
+                          <td style={{padding:"12px 14px",textAlign:"center"}}>{sOrders.reduce((x,o)=>x+Number(o.jackets||0),0)}</td>
+                          <td style={{padding:"12px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(expCost)}</td>
+                          <td style={{padding:"12px 14px",color:"#2D7A4F",fontWeight:600}}>{fmtAED(paid)}</td>
+                          <td style={{padding:"12px 14px",color:remaining>0?"#E05E5C":"#2D7A4F",fontWeight:700}}>{fmtAED(remaining)}</td>
+                          <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedAccSup(s.name)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
+                        </tr>;
+                      })}
+                      {suppliers.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا يوجد موردون":"No suppliers"}</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>}
+
+            {/* ===== SUPPLIER DETAIL ===== */}
+            {accTab==="suppliers"&&selectedAccSup&&(()=>{
+              const s=suppliers.find(x=>x.name===selectedAccSup);
+              const sOrders=orders.filter(o=>o.supplier===selectedAccSup);
+              const expCost=sOrders.reduce((sum,o)=>sum+orderExpectedCostAED(o),0);
+              const paid=supPayments.filter(p=>p.supplier===selectedAccSup).reduce((sum,p)=>sum+Number(p.amount||0),0);
+              const remaining=expCost-paid;
+              return <div>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                  <button onClick={()=>setSelectedAccSup(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
+                  <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>🏭 {selectedAccSup}</h2>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:20}}>
+                  {[[rtl?"طلبات":"Orders",sOrders.length,tp],[rtl?"جاكيتات":"Jackets",sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),tp],[rtl?"التكلفة المتوقعة":"Expected",fmtAED(expCost),"#202F4D"],[rtl?"المدفوع":"Paid",fmtAED(paid),"#2D7A4F"],[rtl?"المتبقي":"Remaining",fmtAED(remaining),remaining>0?"#E05E5C":"#2D7A4F"]].map(([k,v,c])=>(
+                    <div key={k} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:16}}>
+                      <div style={{fontSize:11,color:tm,marginBottom:4}}>{k}</div>
+                      <div style={{fontSize:18,fontWeight:800,color:c}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                  <div style={{padding:"14px 16px",borderBottom:"1px solid "+bc,fontWeight:800,fontSize:14}}>{rtl?"الطلبات المسندة":"Assigned Orders"}</div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                      <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                        {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"الكمية":"Qty",rtl?"النوع":"Type",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"الحالة":"Status"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {sOrders.map(o=>(
+                          <tr key={o.id} style={{borderTop:"1px solid "+bc}}>
+                            <td style={{padding:"10px 14px",fontWeight:700,color:"#E05E5C"}}>{o.id}</td>
+                            <td style={{padding:"10px 14px"}}>{o.customer||"--"}</td>
+                            <td style={{padding:"10px 14px",textAlign:"center"}}>{o.jackets}</td>
+                            <td style={{padding:"10px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
+                            <td style={{padding:"10px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(orderExpectedCostAED(o))}</td>
+                            <td style={{padding:"10px 14px"}}><Badge status={o.status}/></td>
+                          </tr>
+                        ))}
+                        {sOrders.length===0&&<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:tm}}>{rtl?"لا توجد طلبات":"No orders"}</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>;
+            })()}
+
+            {/* ===== PAYMENTS TAB ===== */}
+            {accTab==="payments"&&<div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+                  <select value={supPaySupFilter} onChange={e=>setSupPaySupFilter(e.target.value)} style={{...IS,width:"auto"}}>
+                    <option value="">{rtl?"جميع الموردين":"All Suppliers"}</option>
+                    {suppliers.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}
+                  </select>
+                  <select value={supPayMethodFilter} onChange={e=>setSupPayMethodFilter(e.target.value)} style={{...IS,width:"auto"}}>
+                    <option value="">{rtl?"كل الطرق":"All Methods"}</option>
+                    {["Cash","Bank Transfer","Cheque","Other"].map(m=><option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <button onClick={()=>{setSupPayForm({supplier:"",amount:"",date:new Date().toISOString().slice(0,10),method:"",ref:"",note:""});setShowSupPayModal(true);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>+ {rtl?"دفعة مورد":"Add Payment"}</button>
+              </div>
+              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                      {[rtl?"التاريخ":"Date",rtl?"المورد":"Supplier",rtl?"المبلغ":"Amount",rtl?"الطريقة":"Method",rtl?"مرجع":"Ref",rtl?"سجّل":"By",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {supPayments.filter(p=>(!supPaySupFilter||p.supplier===supPaySupFilter)&&(!supPayMethodFilter||p.method===supPayMethodFilter)).map((p,i)=>(
+                        <tr key={p.id||i} style={{borderTop:"1px solid "+bc}}>
+                          <td style={{padding:"12px 14px",fontFamily:"monospace",fontSize:12}}>{p.date}</td>
+                          <td style={{padding:"12px 14px",fontWeight:600}}>{p.supplier}</td>
+                          <td style={{padding:"12px 14px",fontWeight:800,color:"#2D7A4F"}}>{fmtAED(p.amount)}</td>
+                          <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{p.method||"--"}</td>
+                          <td style={{padding:"12px 14px",color:tm,fontSize:12,fontFamily:"monospace"}}>{p.ref||"--"}</td>
+                          <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{p.by}</td>
+                          <td style={{padding:"12px 14px"}}><button onClick={()=>deleteSupplierPayment(p)} style={{background:"transparent",border:"none",cursor:"pointer",color:"#E05E5C",fontSize:15}}>🗑</button></td>
+                        </tr>
+                      ))}
+                      {supPayments.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا توجد مدفوعات":"No payments"}</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>}
+
+            {/* ===== REPORTS TAB ===== */}
+            {accTab==="reports"&&!viewingReport&&<div>
+              <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
+                <button onClick={()=>{setReportBalance("");setShowGenReport(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>📄 {rtl?"إنشاء تقرير مالي":"Generate Report"}</button>
+              </div>
+              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                      {[rtl?"التقرير":"Report",rtl?"أنشئ بواسطة":"By",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"المتبقي للموردين":"Sup. Remaining",rtl?"صافي المركز":"Net Position",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {savedReports.map((r,i)=>(
+                        <tr key={r.id||i} style={{borderTop:"1px solid "+bc}}>
+                          <td style={{padding:"12px 14px",fontWeight:700}}>{rtl?"تقرير":"Report"} {new Date(r.created_at).toLocaleDateString(rtl?"ar-OM":"en-GB")}</td>
+                          <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{r.created_by}</td>
+                          <td style={{padding:"12px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(r.expected_cost_aed)}</td>
+                          <td style={{padding:"12px 14px",color:"#E05E5C",fontWeight:600}}>{fmtAED(r.remaining_suppliers_aed)}</td>
+                          <td style={{padding:"12px 14px",fontWeight:800,color:(r.net_position_aed>=0?"#2D7A4F":"#E05E5C")}}>{fmtAED(r.net_position_aed)}</td>
+                          <td style={{padding:"12px 14px"}}><button onClick={()=>setViewingReport(r)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"عرض":"View"}</button></td>
+                        </tr>
+                      ))}
+                      {savedReports.length===0&&<tr><td colSpan={6} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا توجد تقارير محفوظة":"No saved reports"}</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>}
+
+            {/* ===== REPORT VIEW (snapshot) ===== */}
+            {accTab==="reports"&&viewingReport&&(()=>{
+              const r=viewingReport;
+              const rate=Number(r.exchange_rate)||RATE;
+              const breakdown=typeof r.supplier_breakdown==="string"?JSON.parse(r.supplier_breakdown||"[]"):(r.supplier_breakdown||[]);
+              const totalAvailPlusRecv=r.available_balance_omr+r.customer_outstanding_omr;
+              return <div>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                  <button onClick={()=>setViewingReport(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
+                  <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>📄 {rtl?"تقرير مالي":"Financial Report"} — {new Date(r.created_at).toLocaleDateString(rtl?"ar-OM":"en-GB")}</h2>
+                </div>
+                <div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:8,padding:"8px 14px",marginBottom:16,fontSize:12,color:"#92400E"}}>📸 {rtl?"لقطة تاريخية — القيم ثابتة كما كانت وقت الإنشاء. سعر الصرف المستخدم:":"Historical snapshot — values frozen. Rate used:"} <b>1 OMR = {rate} AED</b></div>
+                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden",marginBottom:16}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                    <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                      {[rtl?"البند المالي":"Item",rtl?"ريال (OMR)":"OMR",rtl?"درهم (AED)":"AED"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {[
+                        [rtl?"الرصيد المتاح":"Available Balance",r.available_balance_omr,r.available_balance_omr*rate],
+                        [rtl?"مستحقات العملaء":"Customer Outstanding",r.customer_outstanding_omr,r.customer_outstanding_omr*rate],
+                        [rtl?"التكلفة المتوقعة للموردين":"Expected Supplier Cost",r.expected_cost_aed/rate,r.expected_cost_aed],
+                        [rtl?"المدفوع للموردين":"Paid to Suppliers",r.paid_suppliers_aed/rate,r.paid_suppliers_aed],
+                        [rtl?"المتبقي للموردين":"Remaining to Suppliers",r.remaining_suppliers_aed/rate,r.remaining_suppliers_aed],
+                      ].map(([k,omr,aed])=>(
+                        <tr key={k} style={{borderTop:"1px solid "+bc}}>
+                          <td style={{padding:"10px 14px",fontWeight:600}}>{k}</td>
+                          <td style={{padding:"10px 14px"}}>{fmtOMR(omr)}</td>
+                          <td style={{padding:"10px 14px"}}>{fmtAED(aed)}</td>
+                        </tr>
+                      ))}
+                      <tr style={{borderTop:"2px solid "+bc,background:r.net_position_omr>=0?"#E6F4EC":"#FEF2F2"}}>
+                        <td style={{padding:"12px 14px",fontWeight:800}}>{rtl?"صافي المركز المتوقع":"Expected Net Position"}</td>
+                        <td style={{padding:"12px 14px",fontWeight:800,color:r.net_position_omr>=0?"#2D7A4F":"#E05E5C"}}>{fmtOMR(r.net_position_omr)}</td>
+                        <td style={{padding:"12px 14px",fontWeight:800,color:r.net_position_aed>=0?"#2D7A4F":"#E05E5C"}}>{fmtAED(r.net_position_aed)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:16}}>
+                  {[[rtl?"إجمالي الطلبات":"Total Orders",r.total_orders],[rtl?"إجمالي الجاكيتات":"Total Jackets",r.total_jackets]].map(([k,v])=>(
+                    <div key={k} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:16}}>
+                      <div style={{fontSize:11,color:tm,marginBottom:4}}>{k}</div>
+                      <div style={{fontSize:20,fontWeight:800,color:tp}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                {breakdown.length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                  <div style={{padding:"14px 16px",borderBottom:"1px solid "+bc,fontWeight:800,fontSize:14}}>{rtl?"تفصيل الموردين":"Supplier Breakdown"}</div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                      <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                        {[rtl?"المورد":"Supplier",rtl?"جاكيتات":"Jackets",rtl?"التكلفة":"Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
+                      </tr></thead>
+                      <tbody>
+                        {breakdown.map((b,i)=>(
+                          <tr key={i} style={{borderTop:"1px solid "+bc}}>
+                            <td style={{padding:"10px 14px",fontWeight:600}}>{b.name}</td>
+                            <td style={{padding:"10px 14px",textAlign:"center"}}>{b.jackets}</td>
+                            <td style={{padding:"10px 14px",color:"#202F4D"}}>{fmtAED(b.expectedCost)}</td>
+                            <td style={{padding:"10px 14px",color:"#2D7A4F"}}>{fmtAED(b.paid)}</td>
+                            <td style={{padding:"10px 14px",color:b.remaining>0?"#E05E5C":"#2D7A4F"}}>{fmtAED(b.remaining)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>}
+              </div>;
+            })()}
+
+            {/* MODALS */}
+            {showRateEdit&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowRateEdit(false)}>
+              <div style={{background:bgC,borderRadius:16,padding:28,width:380,maxWidth:"95vw"}}>
+                <h2 style={{margin:"0 0 16px",fontSize:17,fontWeight:800}}>💱 {rtl?"تعديل سعر الصرف":"Edit Exchange Rate"}</h2>
+                <label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>1 OMR = ? AED</label>
+                <input type="number" value={rateEditVal} onChange={e=>setRateEditVal(e.target.value)} style={IS} step="0.01"/>
+                <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setShowRateEdit(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+                  <button onClick={saveExchangeRate} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ":"Save"}</button>
+                </div>
+              </div>
+            </div>}
+
+            {showCostsEdit&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowCostsEdit(false)}>
+              <div style={{background:bgC,borderRadius:16,padding:28,width:420,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
+                <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>🏷️ {rtl?"تعديل أسعار الأنواع":"Edit Type Costs"}</h2>
+                <p style={{color:tm,fontSize:12,margin:"0 0 16px"}}>{rtl?"السعر بالدرهم لكل جاكيت":"Price in AED per jacket"}</p>
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  {ORDER_TYPES_EN.map((type,i)=>(
+                    <div key={type}>
+                      <label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?ORDER_TYPES_AR[i]:type} (AED)</label>
+                      <input type="number" value={costsForm[type]||0} onChange={e=>setCostsForm(f=>({...f,[type]:e.target.value}))} style={IS} step="0.01"/>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setShowCostsEdit(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+                  <button onClick={saveTypeCosts} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ":"Save"}</button>
+                </div>
+              </div>
+            </div>}
+
+            {showSupPayModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowSupPayModal(false)}>
+              <div style={{background:bgC,borderRadius:16,padding:28,width:440,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
+                <h2 style={{margin:"0 0 20px",fontSize:17,fontWeight:800}}>💵 {rtl?"دفعة مورد جديدة":"New Supplier Payment"}</h2>
+                <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"المورد *":"Supplier *"}</label>
+                    <select value={supPayForm.supplier} onChange={e=>setSupPayForm(p=>({...p,supplier:e.target.value}))} style={IS}>
+                      <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
+                      {suppliers.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"المبلغ (درهم) *":"Amount (AED) *"}</label>
+                    <input type="number" value={supPayForm.amount} onChange={e=>setSupPayForm(p=>({...p,amount:e.target.value}))} style={IS} step="0.01"/>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"التاريخ *":"Date *"}</label>
+                    <input type="date" value={supPayForm.date} onChange={e=>setSupPayForm(p=>({...p,date:e.target.value}))} style={IS}/>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"طريقة الدفع":"Method"}</label>
+                    <select value={supPayForm.method} onChange={e=>setSupPayForm(p=>({...p,method:e.target.value}))} style={IS}>
+                      <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
+                      {["Cash","Bank Transfer","Cheque","Other"].map(m=><option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"رقم مرجعي":"Reference"}</label>
+                    <input value={supPayForm.ref} onChange={e=>setSupPayForm(p=>({...p,ref:e.target.value}))} style={IS}/>
+                  </div>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"ملاحظة":"Note"}</label>
+                    <input value={supPayForm.note} onChange={e=>setSupPayForm(p=>({...p,note:e.target.value}))} style={IS}/>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setShowSupPayModal(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+                  <button onClick={saveSupplierPayment} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ الدفعة":"Save"}</button>
+                </div>
+              </div>
+            </div>}
+
+            {showGenReport&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowGenReport(false)}>
+              <div style={{background:bgC,borderRadius:16,padding:28,width:440,maxWidth:"95vw"}}>
+                <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:800}}>📄 {rtl?"إنشاء تقرير مالي":"Generate Report"}</h2>
+                <p style={{color:tm,fontSize:12,margin:"0 0 20px"}}>{rtl?"معظم البيانات تُجمع تلقائياً. أدخل فقط الرصيد المتاح حالياً.":"Most data auto-collected. Just enter current balance."}</p>
+                <label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"الرصيد المتاح حالياً (ريال) *":"Current Available Balance (OMR) *"}</label>
+                <input type="number" value={reportBalance} onChange={e=>setReportBalance(e.target.value)} placeholder="0.000" style={IS} step="0.001"/>
+                {reportBalance&&<div style={{fontSize:12,color:tm,marginTop:6}}>≈ {fmtAED(toAED(Number(reportBalance)))}</div>}
+                <div style={{background:C.slateLight,borderRadius:8,padding:12,marginTop:16,fontSize:12,color:tm}}>
+                  <div style={{marginBottom:4}}>📊 {rtl?"سيُحفظ:":"Will save:"}</div>
+                  <div>• {rtl?"التكلفة المتوقعة:":"Expected cost:"} <b>{fmtAED(totalExpectedCostAED)}</b></div>
+                  <div>• {rtl?"المتبقي للموردين:":"Supplier remaining:"} <b>{fmtAED(expectedRemainingAED)}</b></div>
+                  <div>• {rtl?"مستحقات العملاء:":"Customer outstanding:"} <b>{fmtOMR(customerOutstandingOMR)}</b></div>
+                  <div>• {rtl?"سعر الصرف:":"Rate:"} <b>1 OMR = {RATE} AED</b></div>
+                </div>
+                <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
+                  <button onClick={()=>setShowGenReport(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+                  <button onClick={generateFinancialReport} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"إنشاء وحفظ":"Generate & Save"}</button>
+                </div>
+              </div>
+            </div>}
+          </div>;
+        })()}
+
 
         {/* SETTINGS */}
         {page==="settings"&&currentUser.role==="admin"&&<div>
