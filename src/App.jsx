@@ -46,7 +46,7 @@ const EXPENSE_CATS_AR=["رواتب الموظفين","إيجار المصنع / 
 const EXPENSE_CATS_EN=["Staff Salaries","Factory / Shop Rent","Raw Materials","Shipping & Delivery","Utilities","Marketing & Ads","Miscellaneous"];
 const EXPENSE_ICONS=["👤","🏭","🧵","🚚","💡","📣","📦"];
 
-const DEFAULT_TYPE_COSTS={"Cotton Full":0,"Full Leather":0,"Cotton & Leather":0,"Hoodie":0,"Mix":0,"_default":0};
+const DEFAULT_TYPE_COSTS={"Cotton Full":0,"Full Leather":0,"Cotton & Leather":0,"Hoodie":0,"Mix":0};
 const DEFAULT_EXCHANGE_RATE=9.54; // 1 OMR = 9.54 AED
 
 const SEED_SETTINGS={
@@ -376,12 +376,9 @@ export default function App(){
   const fmtOMR=(n)=>Number(n||0).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})+" OMR";
   // تكلفة النوع بالدرهم مباشرة (المستخدم يدخل السعر بالدرهم لكل جاكيت)
   const orderExpectedCostAED=(o)=>{
-    // إذا للطلب نوع محدد وله سعر، استخدمه — وإلا استخدم السعر الافتراضي
-    const hasType=o.orderType&&typeCosts[o.orderType]>0;
-    const typeCost=hasType?typeCosts[o.orderType]:(typeCosts._default||0);
+    const typeCost=typeCosts[o.orderType]||0;
     return (Number(o.jackets)||0)*typeCost;
   };
-  const ordersWithoutType=orders.filter(o=>!o.orderType||!(typeCosts[o.orderType]>0));
   const totalExpectedCostAED=orders.reduce((s,o)=>s+orderExpectedCostAED(o),0);
   const totalPaidToSuppliersAED=supPayments.reduce((s,p)=>s+Number(p.amount||0),0);
   const expectedRemainingAED=totalExpectedCostAED-totalPaidToSuppliersAED;
@@ -1792,18 +1789,7 @@ export default function App(){
                       <div style={{fontSize:16,fontWeight:800,color:tp}}>{fmtAED(typeCosts[type]||0)}</div>
                     </div>
                   ))}
-                  <div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:10,padding:"10px 16px",minWidth:140}}>
-                    <div style={{fontSize:12,color:"#92400E",marginBottom:4}}>{rtl?"السعر الافتراضي (بدون نوع)":"Default (No Type)"}</div>
-                    <div style={{fontSize:16,fontWeight:800,color:"#B45309"}}>{fmtAED(typeCosts._default||0)}</div>
-                  </div>
                 </div>
-                {ordersWithoutType.length>0&&<div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:10,padding:"12px 16px",marginTop:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                  <span style={{fontSize:20}}>⚠️</span>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:13,fontWeight:700,color:"#92400E"}}>{rtl?`${ordersWithoutType.length} طلب بدون نوع محدد (يُحسب بالسعر الافتراضي)`:`${ordersWithoutType.length} orders without a set type (using default rate)`}</div>
-                    <div style={{fontSize:11,color:"#B45309",marginTop:2}}>{rtl?"عدّل نوع الطلب من صفحة الطلبات لحساب أدق":"Set order type from Orders page for accurate cost"}</div>
-                  </div>
-                </div>}
               </div>
             </div>}
 
@@ -1813,7 +1799,7 @@ export default function App(){
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                      {[rtl?"المورد":"Supplier",rtl?"طلبات":"Orders",rtl?"جاكيتات":"Jackets",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                      {[rtl?"المورد":"Supplier",rtl?"طلبات":"Orders",rtl?"جاكيتات":"Jackets",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {suppliers.map(s=>{
@@ -1823,8 +1809,8 @@ export default function App(){
                         const remaining=expCost-paid;
                         return <tr key={s.id} style={{borderTop:"1px solid "+bc}}>
                           <td style={{padding:"12px 14px",fontWeight:700}}>{s.name}</td>
-                          <td style={{padding:"12px 14px",textAlign:"center"}}>{sOrders.length}</td>
-                          <td style={{padding:"12px 14px",textAlign:"center"}}>{sOrders.reduce((x,o)=>x+Number(o.jackets||0),0)}</td>
+                          <td style={{padding:"12px 14px",textAlign:rtl?"right":"left"}}>{sOrders.length}</td>
+                          <td style={{padding:"12px 14px",textAlign:rtl?"right":"left"}}>{sOrders.reduce((x,o)=>x+Number(o.jackets||0),0)}</td>
                           <td style={{padding:"12px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(expCost)}</td>
                           <td style={{padding:"12px 14px",color:"#2D7A4F",fontWeight:600}}>{fmtAED(paid)}</td>
                           <td style={{padding:"12px 14px",color:remaining>0?"#E05E5C":"#2D7A4F",fontWeight:700}}>{fmtAED(remaining)}</td>
@@ -1863,14 +1849,14 @@ export default function App(){
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                       <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                        {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"الكمية":"Qty",rtl?"النوع":"Type",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"الحالة":"Status"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                        {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"الكمية":"Qty",rtl?"النوع":"Type",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"الحالة":"Status"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                       </tr></thead>
                       <tbody>
                         {sOrders.map(o=>(
                           <tr key={o.id} style={{borderTop:"1px solid "+bc}}>
                             <td style={{padding:"10px 14px",fontWeight:700,color:"#E05E5C"}}>{o.id}</td>
                             <td style={{padding:"10px 14px"}}>{o.customer||"--"}</td>
-                            <td style={{padding:"10px 14px",textAlign:"center"}}>{o.jackets}</td>
+                            <td style={{padding:"10px 14px",textAlign:rtl?"right":"left"}}>{o.jackets}</td>
                             <td style={{padding:"10px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
                             <td style={{padding:"10px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(orderExpectedCostAED(o))}</td>
                             <td style={{padding:"10px 14px"}}><Badge status={o.status}/></td>
@@ -1903,7 +1889,7 @@ export default function App(){
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                      {[rtl?"التاريخ":"Date",rtl?"المورد":"Supplier",rtl?"المبلغ":"Amount",rtl?"الطريقة":"Method",rtl?"مرجع":"Ref",rtl?"سجّل":"By",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                      {[rtl?"التاريخ":"Date",rtl?"المورد":"Supplier",rtl?"المبلغ":"Amount",rtl?"الطريقة":"Method",rtl?"مرجع":"Ref",rtl?"سجّل":"By",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {supPayments.filter(p=>(!supPaySupFilter||p.supplier===supPaySupFilter)&&(!supPayMethodFilter||p.method===supPayMethodFilter)).map((p,i)=>(
@@ -1933,7 +1919,7 @@ export default function App(){
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                      {[rtl?"التقرير":"Report",rtl?"أنشئ بواسطة":"By",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"المتبقي للموردين":"Sup. Remaining",rtl?"صافي المركز":"Net Position",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                      {[rtl?"التقرير":"Report",rtl?"أنشئ بواسطة":"By",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"المتبقي للموردين":"Sup. Remaining",rtl?"صافي المركز":"Net Position",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {savedReports.map((r,i)=>(
@@ -1968,7 +1954,7 @@ export default function App(){
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden",marginBottom:16}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                      {[rtl?"البند المالي":"Item",rtl?"ريال (OMR)":"OMR",rtl?"درهم (AED)":"AED"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
+                      {[rtl?"البند المالي":"Item",rtl?"ريال (OMR)":"OMR",rtl?"درهم (AED)":"AED"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {[
@@ -2005,13 +1991,13 @@ export default function App(){
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                       <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                        {[rtl?"المورد":"Supplier",rtl?"جاكيتات":"Jackets",rtl?"التكلفة":"Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
+                        {[rtl?"المورد":"Supplier",rtl?"جاكيتات":"Jackets",rtl?"التكلفة":"Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
                       </tr></thead>
                       <tbody>
                         {breakdown.map((b,i)=>(
                           <tr key={i} style={{borderTop:"1px solid "+bc}}>
                             <td style={{padding:"10px 14px",fontWeight:600}}>{b.name}</td>
-                            <td style={{padding:"10px 14px",textAlign:"center"}}>{b.jackets}</td>
+                            <td style={{padding:"10px 14px",textAlign:rtl?"right":"left"}}>{b.jackets}</td>
                             <td style={{padding:"10px 14px",color:"#202F4D"}}>{fmtAED(b.expectedCost)}</td>
                             <td style={{padding:"10px 14px",color:"#2D7A4F"}}>{fmtAED(b.paid)}</td>
                             <td style={{padding:"10px 14px",color:b.remaining>0?"#E05E5C":"#2D7A4F"}}>{fmtAED(b.remaining)}</td>
@@ -2048,10 +2034,6 @@ export default function App(){
                       <input type="number" value={costsForm[type]||0} onChange={e=>setCostsForm(f=>({...f,[type]:e.target.value}))} style={IS} step="0.01"/>
                     </div>
                   ))}
-                  <div style={{borderTop:"1px solid "+bc,paddingTop:12}}>
-                    <label style={{display:"block",fontSize:12,fontWeight:700,color:"#B45309",marginBottom:5}}>⚠️ {rtl?"السعر الافتراضي — للطلبات بدون نوع (AED)":"Default Rate — orders without type (AED)"}</label>
-                    <input type="number" value={costsForm._default||0} onChange={e=>setCostsForm(f=>({...f,_default:e.target.value}))} style={IS} step="0.01"/>
-                  </div>
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowCostsEdit(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
