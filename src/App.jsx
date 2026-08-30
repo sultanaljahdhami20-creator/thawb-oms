@@ -272,7 +272,7 @@ export default function App(){
   const [rFac,setRFac]=useState("");
   const [rType,setRType]=useState("all");
   const [showCols,setShowCols]=useState(false);
-  const [cols,setCols]=useState({orderNum:true,customer:true,phone:true,date:true,jackets:true,total:true,paid:true,balance:true,status:true,supplier:true});
+  const [cols,setCols]=useState({orderNum:true,customer:true,phone:true,date:true,jackets:true,total:true,paid:true,balance:true,status:true,supplier:true,deliveryArea:true});
 
   const [loading,setLoading]=useState(true);
   const [mobileNav,setMobileNav]=useState(false);
@@ -584,13 +584,14 @@ export default function App(){
     return true;
   }),[orders,rFrom,rTo,rSt,rFac,rType]);
 
-  const cLabels={orderNum:t.orderNum,customer:t.customer,phone:t.phone,date:t.date,jackets:t.jackets,total:t.total,paid:t.paid,balance:t.balance,status:t.status,supplier:t.supplier};
+  const cLabels={orderNum:t.orderNum,customer:t.customer,phone:t.phone,date:t.date,jackets:t.jackets,total:t.total,paid:t.paid,balance:t.balance,status:t.status,supplier:t.supplier,deliveryArea:rtl?"منطقة التوصيل":"Delivery Area"};
   const aCols=Object.keys(cols).filter(k=>cols[k]);
   const cv=(o,k)=>{
     if(k==="orderNum")return o.id;if(k==="customer")return o.customer||"--";if(k==="phone")return o.phone;
     if(k==="date")return o.date;if(k==="jackets")return o.jackets;if(k==="total")return fmt(o.total);
     if(k==="paid")return fmt(o.paid);if(k==="balance")return fmt(o.total-o.paid);
-    if(k==="status")return sl(o.status);if(k==="supplier")return o.supplier||"--";return "";
+    if(k==="status")return sl(o.status);if(k==="supplier")return o.supplier||"--";
+    if(k==="deliveryArea")return o.deliveryArea||"--";return "";
   };
 
   // ── Settings persistence
