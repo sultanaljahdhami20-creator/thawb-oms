@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabase";
 import * as XLSX from "xlsx";
 
@@ -48,6 +48,7 @@ const EXPENSE_ICONS=["👤","🏭","🧵","🚚","💡","📣","📦"];
 
 const DEFAULT_TYPE_COSTS={"Cotton Full":0,"Full Leather":0,"Cotton & Leather":0,"Hoodie":0,"Mix":0,"_default":0};
 const DEFAULT_EXCHANGE_RATE=9.54; // 1 OMR = 9.54 AED
+const SENDER_PHONE="72511952";
 
 const SEED_SETTINGS={
   cycleYear:"2026",
@@ -177,13 +178,10 @@ export default function App(){
   // ── Print/Reports
   const [showPrint,setShowPrint]=useState(false);
   const [printO,setPrintO]=useState(null);
-  const [qzReady,setQzReady]=useState(false);
-  const qzRef=useRef(null);
-
   const generateBarcodeSVG=(text)=>{
     let rects=[];let x=10;
     const narrow=2,wide=5,gap=3;
-    const safeText=(text||"").toUpperCase().replace(/[^0-9A-Z\-\.]/g,"").slice(0,20)||"ORDER";
+    const safeText=(text||"").toUpperCase().replace(/[^0-9A-Z.-]/g,"").slice(0,20)||"ORDER";
     for(let i=0;i<safeText.length;i++){
       const code=safeText.charCodeAt(i);
       const pat=code%2===0?[wide,narrow,wide,narrow,narrow]:[narrow,wide,narrow,wide,narrow];
@@ -197,71 +195,37 @@ export default function App(){
     return rects.join("");
   };
 
-  useEffect(()=>{
-    const script=document.createElement("script");
-    script.src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js";
-    script.onload=()=>{
-      if(!window.qz)return;
-      qzRef.current=window.qz;
-      window.qz.security.setCertificatePromise(()=>Promise.resolve());
-      window.qz.security.setSignatureAlgorithm("SHA512");
-      window.qz.security.setSignaturePromise(()=>()=>Promise.resolve());
-    };
-    document.head.appendChild(script);
-    const iv=setInterval(()=>{
-      try{
-        if(window.qz&&window.qz.websocket){
-          qzRef.current=window.qz;
-          const active=window.qz.websocket.isActive();
-          setQzReady(prev=>prev===active?prev:active);
-          if(!active&&window.qz.websocket.connect){
-            window.qz.websocket.connect().catch(()=>{});
-          }
-        }
-      }catch(e){}
-    },1000);
-    return()=>clearInterval(iv);
-  },[]);
-
-  const printShippingLabel=async(o)=>{
-    if(!window.qz||!window.qz.websocket.isActive()){
-      showT(rtl?"QZ Tray غير متصل — تأكد إنه شغّال":"QZ Tray not connected","error");
-      return;
-    }
-    try{
-      const orderId=(o.id||"").toUpperCase();
-      const customer=o.customer||"--";
-      const phone=o.phone||"";
-      const area=o.deliveryArea||"--";
-      const jackets=String(o.jackets||0);
-      const orderType=o.orderType||(rtl?"غير محدد":"N/A");
-      const cfg=window.qz.configs.create("PM-241-BT",{size:{width:4,height:6},units:"in",density:203});
-      const html="<html><head><style>"+
-        "*{margin:0;padding:0;box-sizing:border-box;}"+
-        "body{width:100mm;background:#fff;color:#000;font-family:Arial,sans-serif;}"+
-        ".hdr{border-bottom:3px solid #000;padding:8px 10px;display:flex;justify-content:space-between;align-items:center;}"+
-        ".brand{font-size:24px;font-weight:900;letter-spacing:2px;}"+
-        ".sec{padding:8px 10px;border-bottom:2px solid #000;}"+
-        ".lbl{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:2px;}"+
-        ".val{font-size:20px;font-weight:900;}"+
-        ".row{display:flex;border-bottom:2px solid #000;}"+
-        ".col{flex:1;padding:8px 10px;}"+
-        ".col2{border-left:2px solid #000;}"+
-        ".bc{padding:10px;text-align:center;}"+
-        ".bt{font-family:monospace;font-size:10px;font-weight:700;letter-spacing:2px;margin-top:4px;}"+
-        "</style></head><body>"+
-        "<div class='hdr'><div class='brand'>THAWB</div><div style='font-size:9px;font-weight:700'>ثوب سينيورز</div></div>"+
-        "<div class='sec'><div class='lbl'>العميل / Customer</div><div class='val'>"+customer+"</div><div style='font-size:13px;font-weight:700;direction:ltr'>"+phone+"</div></div>"+
-        "<div class='sec'><div class='lbl'>منطقة التوصيل / Delivery Area</div><div class='val'>"+area+"</div></div>"+
-        "<div class='row'><div class='col'><div class='lbl'>نوع الطلب</div><div style='font-size:12px;font-weight:900'>"+orderType+"</div></div>"+
-        "<div class='col col2'><div class='lbl'>الجاكيتات</div><div style='font-size:12px;font-weight:900'>"+jackets+"</div></div></div>"+
-        "<div class='bc'><svg xmlns='http://www.w3.org/2000/svg' width='260' height='60'>"+generateBarcodeSVG(orderId)+"</svg><div class='bt'>"+orderId+"</div></div>"+
-        "</body></html>";
-      await window.qz.print(cfg,[{type:"pixel",format:"html",flavor:"plain",data:html}]);
-      showT(rtl?"✅ تمت الطباعة":"✅ Printed!");
-    }catch(err){
-      showT((rtl?"خطأ: ":"Error: ")+(err&&err.message?err.message:String(err)),"error");
-    }
+  const escapeLabel=(value)=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]));
+  const openLabelPrint=(labelOrders)=>{
+    const printable=(Array.isArray(labelOrders)?labelOrders:[labelOrders]).filter(Boolean);
+    if(!printable.length)return;
+    const labels=printable.map(o=>{
+      const orderId=escapeLabel((o.id||"").toUpperCase());
+      const orderType=o.orderType?(rtl?ORDER_TYPES_AR[ORDER_TYPES_EN.indexOf(o.orderType)]||o.orderType:o.orderType):(rtl?"غير محدد":"Not set");
+      return `<section class="label" dir="rtl">
+        <header><div><div class="brand">THAWB</div><div class="brand-ar">ثوب سينيورز</div></div><div class="warehouse">IN WAREHOUSE<br><span>في المخزن</span></div></header>
+        <div class="order"><div class="eyebrow">رقم الطلب · ORDER NUMBER</div><div class="order-id">${orderId}</div></div>
+        <div class="delivery">
+          <div class="field field-wide"><span>اسم المستلم · RECEIVER</span><strong>${escapeLabel(o.customer||"--")}</strong></div>
+          <div class="field"><span>رقم المستلم</span><strong dir="ltr">${escapeLabel(o.phone||"--")}</strong></div>
+          <div class="field"><span>رقم المرسل</span><strong dir="ltr">${SENDER_PHONE}</strong></div>
+          <div class="field field-wide area"><span>منطقة التوصيل · DELIVERY AREA</span><strong>${escapeLabel(o.deliveryArea||"--")}</strong></div>
+        </div>
+        <div class="details">
+          <div><span>عدد الجاكيتات</span><strong>${escapeLabel(o.jackets||0)}</strong></div>
+          <div><span>نوع الطلب</span><strong>${escapeLabel(orderType)}</strong></div>
+          <div><span>الإضافات</span><strong>${escapeLabel(o.extras||0)}</strong></div>
+        </div>
+        <div class="meta"><span>المورد: <b>${escapeLabel(o.supplier||"--")}</b></span><span>تاريخ الطلب: <b dir="ltr">${escapeLabel(o.date||"--")}</b></span></div>
+        <div class="barcode"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 55" preserveAspectRatio="xMidYMid meet">${generateBarcodeSVG(o.id)}</svg><div>${orderId}</div></div>
+      </section>`;
+    }).join("");
+    const w=window.open("","_blank","width=520,height=760");
+    if(!w){showT(rtl?"اسمح بالنوافذ المنبثقة لفتح الطباعة":"Allow pop-ups to open printing","error");return;}
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>THAWB Order Labels</title><style>
+      @page{size:4in 6in;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#e5e7eb;color:#111;font-family:Arial,"Tahoma",sans-serif}.label{width:4in;height:6in;margin:18px auto;background:#fff;overflow:hidden;display:flex;flex-direction:column;border:1px solid #111}header{height:.75in;padding:.12in .18in;display:flex;align-items:center;justify-content:space-between;border-bottom:4px solid #111}.brand{font-size:27px;font-weight:950;letter-spacing:4px;line-height:1}.brand-ar{font-size:11px;font-weight:700;margin-top:4px}.warehouse{text-align:left;font-size:10px;font-weight:900;letter-spacing:1px;border:2px solid #111;padding:6px 9px;line-height:1.2}.warehouse span{font-size:11px;letter-spacing:0}.order{text-align:center;padding:.11in .16in;border-bottom:2px solid #111}.eyebrow,.field span,.details span{display:block;font-size:8px;font-weight:800;letter-spacing:.5px;color:#4b5563}.order-id{font-family:"Courier New",monospace;font-size:30px;font-weight:900;letter-spacing:2px;direction:ltr}.delivery{display:grid;grid-template-columns:1fr 1fr;border-bottom:2px solid #111}.field{padding:.09in .13in;min-height:.58in;border-left:1px solid #111;border-bottom:1px solid #111}.field:nth-child(even){border-left:0}.field-wide{grid-column:1/-1;border-left:0}.field strong{display:block;font-size:15px;margin-top:4px;overflow-wrap:anywhere}.field-wide strong{font-size:18px}.area strong{font-size:22px}.details{display:grid;grid-template-columns:.75fr 1.65fr .75fr;border-bottom:2px solid #111}.details div{padding:.08in .09in;text-align:center;border-left:1px solid #111}.details div:last-child{border-left:0}.details strong{display:block;font-size:17px;margin-top:4px}.meta{display:flex;justify-content:space-between;gap:8px;padding:.07in .12in;font-size:9px;border-bottom:1px solid #111}.barcode{margin-top:auto;text-align:center;padding:.05in .12in .08in;direction:ltr}.barcode svg{display:block;width:100%;height:.48in}.barcode div{font:900 11px "Courier New",monospace;letter-spacing:3px;margin-top:1px}@media print{html,body{background:#fff}.label{margin:0;border:0;break-after:page;page-break-after:always}.label:last-child{break-after:auto;page-break-after:auto}}
+    </style></head><body>${labels}<script>window.onload=()=>setTimeout(()=>window.print(),150)</script></body></html>`);
+    w.document.close();
   };
   const [search,setSearch]=useState("");
   const [fStatus,setFStatus]=useState(0);
@@ -575,6 +539,7 @@ export default function App(){
     return(!q||o.id.toLowerCase().includes(q)||o.customer.toLowerCase().includes(q)||o.phone.includes(q))
       &&(!fStatus||o.status===fStatus)&&(!fSup||o.supplier===fSup)&&(!urgentOnly||o.isUrgent);
   }),[orders,search,fStatus,fSup,urgentOnly]);
+  const warehouseOrders=useMemo(()=>orders.filter(o=>o.status===10),[orders]);
 
   const rFilt=useMemo(()=>orders.filter(o=>{
     if(rFrom&&o.date<rFrom)return false;if(rTo&&o.date>rTo)return false;
@@ -1086,6 +1051,7 @@ export default function App(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.allOrders}</h1>
             <div style={{display:"flex",gap:10}}>
+              {warehouseOrders.length>0&&<button onClick={()=>openLabelPrint(warehouseOrders)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?`طباعة ليبلات المخزن (${warehouseOrders.length})`:`Print Warehouse Labels (${warehouseOrders.length})`}</button>}
               {can("orders")&&<button onClick={()=>setShowImport(true)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>📥 {rtl?"استيراد Excel":"Import Excel"}</button>}
               {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
             </div>
@@ -1105,6 +1071,7 @@ export default function App(){
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               {can("suppliers")&&<button onClick={()=>{setAssignSelected(selectedOrderIds);setShowAssign(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🏭 {rtl?"إسناد لمورد":"Assign Supplier"}</button>}
               {can("orders")&&<button onClick={()=>setShowBulkActions(true)} style={{background:"#0EA5E9",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔄 {rtl?"تغيير الحالة":"Change Status"}</button>}
+              {orders.some(o=>selectedOrderIds.includes(o.id)&&o.status===10)&&<button onClick={()=>openLabelPrint(orders.filter(o=>selectedOrderIds.includes(o.id)&&o.status===10))} style={{background:"#111827",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل المحدد":"Print Selected Labels"}</button>}
               {currentUser.role==="admin"&&<button onClick={async()=>{if(!window.confirm(rtl?`حذف ${selectedOrderIds.length} طلب؟ لا يمكن التراجع.`:`Delete ${selectedOrderIds.length} orders? Cannot be undone.`))return;try{await supabase.from("orders").delete().in("id",selectedOrderIds);}catch(e){}setOrders(prev=>prev.filter(o=>!selectedOrderIds.includes(o.id)));setSelectedOrderIds([]);showT(rtl?"تم الحذف!":"Deleted!");}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 {rtl?"حذف":"Delete"}</button>}
               <button onClick={()=>setSelectedOrderIds([])} style={{background:"transparent",border:"1px solid #6366F1",color:"#6366F1",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {rtl?"إلغاء التحديد":"Clear"}</button>
             </div>
@@ -1161,7 +1128,7 @@ export default function App(){
               </button>}
               {can("orders")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
-              <button onClick={()=>printShippingLabel(o)} style={{background:qzReady?"#2D7A4F":"#94A3B8",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:qzReady?"pointer":"not-allowed"}} title={qzReady?(rtl?"طباعة ستكر الشحن":"Print Shipping Label"):(rtl?"QZ Tray غير متصل":"QZ Tray not connected")}>🏷️ {rtl?"ستكر الشحن":"Shipping Label"}</button>
+              {o.status===10&&<button onClick={()=>openLabelPrint(o)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل الأوردر":"Print Order Label"}</button>}
               {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}
