@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { supabase } from "./supabase";
 import * as XLSX from "xlsx";
+import RefundsPage from "./RefundsPage";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
 const SC=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#EC4899",bg:"#FDF2F8"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#3B82F6",bg:"#EFF6FF"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#7C3AED",bg:"#F5F3FF"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -81,6 +82,12 @@ export default function App(){
   const [activityLog,setActivityLog]=useState([]);
   const [logUserFilter,setLogUserFilter]=useState("");
   const [expenses,setExpenses]=useState([]);
+  const [refunds,setRefunds]=useState([]);
+  const [showRefundRequest,setShowRefundRequest]=useState(false);
+  const [refundOrderId,setRefundOrderId]=useState("");
+  const [refundReason,setRefundReason]=useState("delay");
+  const [refundComment,setRefundComment]=useState("");
+  const [savingRefund,setSavingRefund]=useState(false);
   const [showNewExp,setShowNewExp]=useState(false);
   const [newExp,setNewExp]=useState({date:"",category:"",amount:"",note:""});
   const [expCatFilter,setExpCatFilter]=useState("");
@@ -345,6 +352,7 @@ export default function App(){
         const {data:supPays}=await supabase.from("supplier_account_payments").select("*").order("date",{ascending:false});
         const {data:finSettings}=await supabase.from("financial_settings").select("*").eq("id","main").single();
         const {data:reports}=await supabase.from("financial_reports").select("*").order("created_at",{ascending:false});
+        const {data:refundRows}=await supabase.from("compensation_requests").select("*").order("requested_at",{ascending:false});
         if(ords&&ords.length>0){
           setOrders(ords.map(o=>({
             ...o,
@@ -397,6 +405,7 @@ export default function App(){
           if(finSettings.exchange_rate)setExchangeRate(Number(finSettings.exchange_rate));
         }
         if(reports)setSavedReports(reports);
+        if(refundRows)setRefunds(refundRows);
         try{
           const savedUserId=localStorage.getItem("thawb_user_id");
           if(savedUserId){
@@ -493,6 +502,43 @@ export default function App(){
     const entry={user_id:currentUser?.id||"",user_name:currentUser?.name||"Admin",action,details,created_at:new Date().toISOString()};
     (async()=>{try{await supabase.from("activity_log").insert({user_id:entry.user_id,user_name:entry.user_name,action,details});}catch(e){}})();
     setActivityLog(prev=>[entry,...prev]);
+  };
+
+  const openRefundRequest=(orderId="")=>{
+    setRefundOrderId(orderId);
+    setRefundReason("delay");
+    setRefundComment("");
+    setShowRefundRequest(true);
+  };
+
+  const submitRefundRequest=async()=>{
+    const order=orders.find(o=>o.id===refundOrderId);
+    if(!order){showT(rtl?"اختر الطلب":"Select an order","error");return;}
+    if(!refundComment.trim()){showT(rtl?"اكتب تفاصيل سبب التعويض":"Write the compensation details","error");return;}
+    const orderJackets=Math.max(1,Number(order.jackets)||1);
+    const orderTotal=Number(order.total)||0;
+    const unitValue=orderTotal/orderJackets;
+    const now=new Date().toISOString();
+    const payload={
+      order_id:order.id,reason:refundReason,request_comment:refundComment.trim(),status:"pending_review",
+      order_total:orderTotal,order_jackets:orderJackets,affected_jackets:1,
+      calculated_unit_value:unitValue,approved_unit_value:unitValue,percentage:10,
+      affected_value:unitValue,refund_amount:unitValue*0.10,
+      requested_by_id:currentUser?.id||"",requested_by_name:currentUser?.name||"",
+      comments:[],history:[{status:"pending_review",by:currentUser?.name||"",at:now,note:refundComment.trim()}],requested_at:now,updated_at:now
+    };
+    setSavingRefund(true);
+    try{
+      const {data,error}=await supabase.from("compensation_requests").insert(payload).select().single();
+      if(error)throw error;
+      setRefunds(prev=>[data,...prev]);
+      logActivity(rtl?"طلب تعويض جديد":"New compensation request",`${order.id} · ${refundReason}`);
+      setShowRefundRequest(false);setRefundOrderId("");setRefundComment("");
+      showT(rtl?"تم إرسال طلب التعويض للمدير":"Compensation request sent to manager");
+    }catch(error){
+      console.error(error);
+      showT(rtl?"تعذر حفظ طلب التعويض":"Could not save compensation request","error");
+    }finally{setSavingRefund(false);}
   };
 
   // ── Financial actions
@@ -1074,6 +1120,7 @@ export default function App(){
         {NI("dashboard","📊",t.dashboard,!(currentUser.role==="admin"||currentUser.dashboard!==false))}
         {NI("orders","📋",t.orders,!can("orders"))}
         {NI("errors","🔧",rtl?"أخطاء الجاكيتات":"Jacket Errors",!can("orders"))}
+        {NI("refunds","↩️",rtl?"التعويضات":"Refunds",!can("orders"))}
         {NI("suppliers","🏭",t.suppliers,!can("suppliers"))}
         {NI("reports","📈",t.reports,!can("reports"))}
         {NI("users","👥",t.users,currentUser.role!=="admin")}
@@ -1219,6 +1266,7 @@ export default function App(){
                 ⚡ {o.isUrgent?(rtl?"إلغاء المستعجل":"Remove Urgent"):(rtl?"تعليم مستعجل":"Mark Urgent")}
               </button>}
               {can("orders")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
+              {can("orders")&&<button onClick={()=>openRefundRequest(o.id)} style={{background:"#FFF7ED",color:"#9A3412",border:"1px solid #FDBA74",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>↩️ {rtl?"يحتاج تعويض":"Needs Compensation"}</button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
               {o.status===10&&<button className="label-print-action" onClick={()=>openLabelPrint(o)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل الأوردر":"Print Order Label"}</button>}
               {o.status===10&&<button className="label-save-action" disabled={savingLabels} onClick={()=>saveLabelsPdf(o)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {savingLabels?(rtl?"جارٍ تجهيز PDF...":"Preparing PDF..."):(rtl?"حفظ ملف PDF ‏4×6":"Save 4×6 PDF")}</button>}
@@ -1432,6 +1480,9 @@ export default function App(){
             })}
           </div>
         </div>}
+
+        {/* REFUNDS */}
+        {page==="refunds"&&can("orders")&&<RefundsPage orders={orders} refunds={refunds} setRefunds={setRefunds} currentUser={currentUser} rtl={rtl} onNewRequest={openRefundRequest}/>}
 
         {/* REPORTS */}
         {page==="reports"&&<div>
@@ -2717,6 +2768,37 @@ export default function App(){
           </div>
         </div>;
       })()}
+
+      {/* COMPENSATION REQUEST MODAL */}
+      {showRefundRequest&&<div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.68)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&setShowRefundRequest(false)}>
+        <div style={{background:bgC,color:tp,borderRadius:18,width:520,maxWidth:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.3)"}}>
+          <div style={{padding:"22px 24px 16px",borderBottom:"1px solid "+bc,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div><h2 style={{margin:0,fontSize:19}}>↩️ {rtl?"طلب تعويض":"Compensation Request"}</h2><p style={{margin:"5px 0 0",fontSize:12,color:tm}}>{rtl?"يرسل إلى المدير للمراجعة والاعتماد":"Sent to the manager for review and approval"}</p></div>
+            <button onClick={()=>setShowRefundRequest(false)} style={{border:0,background:"transparent",color:tm,fontSize:24,cursor:"pointer"}}>×</button>
+          </div>
+          <div style={{padding:24,display:"grid",gap:17}}>
+            <label style={{fontSize:12,fontWeight:800,color:tm}}>{rtl?"الطلب":"Order"}
+              <select value={refundOrderId} onChange={e=>setRefundOrderId(e.target.value)} style={{display:"block",width:"100%",boxSizing:"border-box",marginTop:7,padding:"11px 12px",border:"1px solid "+bc,borderRadius:9,background:bgP,color:tp}}>
+                <option value="">{rtl?"اختر الطلب":"Select order"}</option>
+                {orders.map(o=><option key={o.id} value={o.id}>{o.id} — {o.customer||o.phone}</option>)}
+              </select>
+            </label>
+            {(()=>{const o=orders.find(x=>x.id===refundOrderId);return o?<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,background:dm?"#152139":"#F8FAFC",border:"1px solid "+bc,borderRadius:11,padding:13}}>
+              {[[rtl?"قيمة الطلب":"Order value",`${Number(o.total||0).toFixed(3)} OMR`],[rtl?"الجاكيتات":"Jackets",o.jackets],[rtl?"قيمة الجاكيت":"Unit value",`${(Number(o.total||0)/Math.max(1,Number(o.jackets)||1)).toFixed(3)} OMR`]].map(([k,v])=><div key={k}><div style={{fontSize:10,color:tm}}>{k}</div><strong style={{fontSize:13}}>{v}</strong></div>)}
+            </div>:null;})()}
+            <div><div style={{fontSize:12,fontWeight:800,color:tm,marginBottom:8}}>{rtl?"سبب التعويض":"Reason"}</div><div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+              {[["delay",rtl?"تأخير":"Delay","⏱"],["error",rtl?"خطأ":"Error","⚠"],["gift",rtl?"هدية":"Gift","🎁"]].map(([value,label,icon])=><button key={value} onClick={()=>setRefundReason(value)} style={{padding:"12px 8px",borderRadius:9,border:`2px solid ${refundReason===value?"#E05E5C":bc}`,background:refundReason===value?"#FFF1F2":bgP,color:refundReason===value?"#BE123C":tp,fontWeight:800,cursor:"pointer"}}>{icon} {label}</button>)}
+            </div></div>
+            <label style={{fontSize:12,fontWeight:800,color:tm}}>{rtl?"تفاصيل الحالة":"Case details"}
+              <textarea value={refundComment} onChange={e=>setRefundComment(e.target.value)} rows={4} placeholder={rtl?"اشرح سبب طلب التعويض والمشكلة التي حصلت...":"Describe why compensation is needed..."} style={{display:"block",width:"100%",boxSizing:"border-box",marginTop:7,padding:12,border:"1px solid "+bc,borderRadius:9,background:bgP,color:tp,resize:"vertical"}}/>
+            </label>
+          </div>
+          <div style={{padding:"16px 24px 22px",display:"flex",justifyContent:"flex-end",gap:9,borderTop:"1px solid "+bc}}>
+            <button onClick={()=>setShowRefundRequest(false)} style={{padding:"10px 18px",border:"1px solid "+bc,borderRadius:9,background:"transparent",color:tp,cursor:"pointer",fontWeight:700}}>{t.cancel}</button>
+            <button disabled={savingRefund} onClick={submitRefundRequest} style={{padding:"10px 22px",border:0,borderRadius:9,background:"#E05E5C",color:"white",cursor:savingRefund?"wait":"pointer",fontWeight:800,opacity:savingRefund?.65:1}}>{savingRefund?(rtl?"جارٍ الإرسال...":"Sending..."):(rtl?"إرسال للمدير":"Send to Manager")}</button>
+          </div>
+        </div>
+      </div>}
 
       {/* BULK STATUS CHANGE MODAL */}
       {showBulkActions&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowBulkActions(false)}>
