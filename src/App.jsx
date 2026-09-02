@@ -216,7 +216,6 @@ export default function App(){
           <div><span>عدد الجاكيتات</span><strong>${escapeLabel(o.jackets||0)}</strong></div>
           <div><span>نوع الطلب</span><strong>${escapeLabel(orderType)}</strong></div>
         </div>
-        <div class="meta"><span>تاريخ الطلب · ORDER DATE</span><b dir="ltr">${escapeLabel(o.date||"--")}</b></div>
         <div class="barcode"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 55" preserveAspectRatio="xMidYMid meet">${generateBarcodeSVG(o.id)}</svg><div>${orderId}</div></div>
       </section>`;
     }).join("");
