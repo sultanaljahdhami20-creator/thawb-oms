@@ -197,7 +197,7 @@ export default function App(){
   };
 
   const escapeLabel=(value)=>String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[ch]));
-  const openLabelPrint=(labelOrders,autoPrint=true)=>{
+  const openLabelPrint=(labelOrders)=>{
     const printable=(Array.isArray(labelOrders)?labelOrders:[labelOrders]).filter(Boolean);
     if(!printable.length)return;
     const logoUrl=new URL("/thawb-logo.png",window.location.origin).href;
@@ -224,51 +224,96 @@ export default function App(){
     if(!w){showT(rtl?"اسمح بالنوافذ المنبثقة لفتح الطباعة":"Allow pop-ups to open printing","error");return;}
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>THAWB Order Labels</title><style>
       @page{size:4in 6in;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#e5e7eb;color:#111;font-family:Arial,"Tahoma",sans-serif}.label{width:4in;height:6in;margin:18px auto;background:#fff;overflow:hidden;display:flex;flex-direction:column;border:1px solid #111}header{height:.82in;padding:.07in .16in;display:flex;align-items:center;justify-content:center;background:#fff;border-bottom:4px solid #111}header img{display:block;width:.68in;height:.68in;object-fit:contain;object-position:center}.order{text-align:center;padding:.11in .16in;border-bottom:2px solid #111}.eyebrow,.field span,.details span{display:block;font-size:8px;font-weight:800;letter-spacing:.5px;color:#4b5563}.order-id{font-family:"Courier New",monospace;font-size:30px;font-weight:900;letter-spacing:2px;direction:ltr}.delivery{display:grid;grid-template-columns:1fr 1fr;border-bottom:2px solid #111}.field{padding:.09in .13in;min-height:.58in;border-left:1px solid #111;border-bottom:1px solid #111}.field:nth-child(even){border-left:0}.field-wide{grid-column:1/-1;border-left:0}.field strong{display:block;font-size:15px;margin-top:4px;overflow-wrap:anywhere}.field-wide strong{font-size:18px}.area strong{font-size:22px}.details{display:grid;grid-template-columns:.8fr 2fr;border-bottom:2px solid #111}.details div{padding:.1in .12in;text-align:center;border-left:1px solid #111}.details div:last-child{border-left:0}.details strong{display:block;font-size:18px;margin-top:4px}.meta{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:.08in .12in;font-size:9px;border-bottom:1px solid #111}.meta span{font-weight:800;color:#4b5563;letter-spacing:.4px}.meta b{font-size:11px}.barcode{margin-top:auto;text-align:center;padding:.05in .12in .08in;direction:ltr}.barcode svg{display:block;width:100%;height:.48in}.barcode div{font:900 11px "Courier New",monospace;letter-spacing:3px;margin-top:1px}@media print{html,body{background:#fff}.label{margin:0;border:0;break-after:page;page-break-after:always}.label:last-child{break-after:auto;page-break-after:auto}}
-    </style></head><body>${labels}${autoPrint?'<script>window.onload=()=>setTimeout(()=>window.print(),150)</script>':''}</body></html>`);
+    </style></head><body>${labels}<script>window.onload=()=>setTimeout(()=>window.print(),150)</script></body></html>`);
     w.document.close();
-    return w;
+  };
+  const loadLabelLogo=()=>new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>resolve(img);img.onerror=reject;
+    img.src=new URL("/thawb-logo.png",window.location.origin).href;
+  });
+  const drawLabelText=(ctx,text,x,y,size,{weight=700,align="right",direction="rtl",color="#111",maxWidth}={})=>{
+    ctx.save();ctx.fillStyle=color;ctx.font=`${weight} ${size}px Arial, Tahoma, sans-serif`;
+    ctx.textAlign=align;ctx.textBaseline="alphabetic";ctx.direction=direction;
+    ctx.fillText(String(text??"--"),x,y,maxWidth);ctx.restore();
+  };
+  const renderLabelCanvas=async(o,logo)=>{
+    const canvas=document.createElement("canvas");canvas.width=768;canvas.height=1152;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="#fff";ctx.fillRect(0,0,768,1152);ctx.strokeStyle="#111";ctx.lineWidth=4;ctx.strokeRect(2,2,764,1148);
+    const line=(x1,y1,x2,y2,width=3)=>{ctx.beginPath();ctx.lineWidth=width;ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();};
+    ctx.drawImage(logo,319,14,130,130);line(0,154,768,154,5);
+
+    drawLabelText(ctx,"رقم الطلب",728,188,18,{maxWidth:220});
+    drawLabelText(ctx,"ORDER NUMBER",40,188,16,{align:"left",direction:"ltr",color:"#4B5563",maxWidth:220});
+    drawLabelText(ctx,(o.id||"").toUpperCase(),384,246,52,{weight:900,align:"center",direction:"ltr",maxWidth:680});
+    line(0,272,768,272);
+
+    drawLabelText(ctx,"اسم المستلم",728,308,18,{maxWidth:260});
+    drawLabelText(ctx,"RECEIVER",40,308,16,{align:"left",direction:"ltr",color:"#4B5563",maxWidth:220});
+    drawLabelText(ctx,o.customer||"--",384,372,36,{weight:800,align:"center",direction:"rtl",maxWidth:688});
+    line(0,404,768,404);line(384,404,384,544,2);
+
+    drawLabelText(ctx,"رقم المستلم",728,440,17,{maxWidth:250});
+    drawLabelText(ctx,"رقم المرسل",344,440,17,{maxWidth:250});
+    drawLabelText(ctx,o.phone||"--",576,504,30,{weight:900,align:"center",direction:"ltr",maxWidth:330});
+    drawLabelText(ctx,SENDER_PHONE,192,504,30,{weight:900,align:"center",direction:"ltr",maxWidth:330});
+    line(0,544,768,544);
+
+    drawLabelText(ctx,"منطقة التوصيل",728,584,18,{maxWidth:280});
+    drawLabelText(ctx,"DELIVERY AREA",40,584,16,{align:"left",direction:"ltr",color:"#4B5563",maxWidth:250});
+    drawLabelText(ctx,o.deliveryArea||"--",384,662,40,{weight:900,align:"center",direction:"rtl",maxWidth:688});
+    line(0,700,768,700);line(250,700,250,842,2);
+
+    const orderType=o.orderType?(rtl?ORDER_TYPES_AR[ORDER_TYPES_EN.indexOf(o.orderType)]||o.orderType:o.orderType):(rtl?"غير محدد":"Not set");
+    drawLabelText(ctx,"عدد الجاكيتات",224,742,17,{maxWidth:200});
+    drawLabelText(ctx,o.jackets||0,125,810,38,{weight:900,align:"center",direction:"ltr",maxWidth:210});
+    drawLabelText(ctx,"نوع الطلب",728,742,17,{maxWidth:220});
+    drawLabelText(ctx,orderType,509,810,28,{weight:900,align:"center",direction:rtl?"rtl":"ltr",maxWidth:470});
+    line(0,842,768,842);
+
+    const safe=(o.id||"ORDER").toUpperCase().replace(/[^0-9A-Z.-]/g,"").slice(0,20)||"ORDER";
+    const units=[];const narrow=2,wide=5,gap=3;
+    for(let i=0;i<safe.length;i++){
+      const pat=safe.charCodeAt(i)%2===0?[wide,narrow,wide,narrow,narrow]:[narrow,wide,narrow,wide,narrow];
+      for(let j=0;j<pat.length;j++)units.push({bar:j%2===0,width:pat[j],gap:j%2===1?gap:0});
+      units.push({bar:false,width:gap,gap:0});
+    }
+    const totalUnits=units.reduce((sum,u)=>sum+u.width+u.gap,0);const scale=Math.min(2.4,610/totalUnits);
+    let bx=(768-totalUnits*scale)/2;ctx.fillStyle="#000";
+    units.forEach(u=>{if(u.bar)ctx.fillRect(bx,914,u.width*scale,116);bx+=(u.width+u.gap)*scale;});
+    drawLabelText(ctx,(o.id||"").toUpperCase(),384,1072,22,{weight:900,align:"center",direction:"ltr",maxWidth:650});
+    return canvas;
   };
   const saveLabelsPdf=async(labelOrders)=>{
     if(savingLabels)return;
     const printable=(Array.isArray(labelOrders)?labelOrders:[labelOrders]).filter(Boolean);
     if(!printable.length)return;
-    const preview=openLabelPrint(printable,false);
-    if(!preview)return;
     setSavingLabels(true);
     try{
-      preview.document.title=rtl?"جارٍ تجهيز ملف الليبلات...":"Preparing label PDF...";
-      await new Promise(resolve=>{
-        if(preview.document.readyState==="complete")resolve();
-        else preview.addEventListener("load",resolve,{once:true});
-      });
-      await Promise.all([...preview.document.images].map(img=>img.complete?Promise.resolve():new Promise(resolve=>{img.onload=resolve;img.onerror=resolve;})));
-      const [{default:html2canvas},{jsPDF}]=await Promise.all([import("html2canvas"),import("jspdf")]);
-      const pages=[...preview.document.querySelectorAll(".label")];
+      const [{jsPDF},logo]=await Promise.all([import("jspdf"),loadLabelLogo()]);
       const pdf=new jsPDF({orientation:"portrait",unit:"in",format:[4,6],compress:true});
-      for(let i=0;i<pages.length;i++){
-        const canvas=await html2canvas(pages[i],{backgroundColor:"#ffffff",scale:2,useCORS:true,logging:false,width:384,height:576});
+      for(let i=0;i<printable.length;i++){
+        const canvas=await renderLabelCanvas(printable[i],logo);
         if(i>0)pdf.addPage([4,6],"portrait");
-        pdf.addImage(canvas.toDataURL("image/jpeg",0.94),"JPEG",0,0,4,6,undefined,"FAST");
+        pdf.addImage(canvas.toDataURL("image/png"),"PNG",0,0,4,6,undefined,"FAST");
       }
       const blob=pdf.output("blob");
       const today=new Date().toISOString().slice(0,10);
       const fileName=printable.length===1?`THAWB-label-${printable[0].id}.pdf`:`THAWB-labels-${today}.pdf`;
-      preview.close();
       const file=new File([blob],fileName,{type:"application/pdf"});
       let shared=false;
       if(navigator.canShare?.({files:[file]})){
         try{await navigator.share({files:[file],title:fileName});shared=true;}
-        catch(err){if(err?.name==="AbortError"){setSavingLabels(false);return;}}
+        catch(err){if(err?.name==="AbortError")return;}
       }
       if(!shared){
-        const url=URL.createObjectURL(blob);
-        const link=document.createElement("a");
+        const url=URL.createObjectURL(blob);const link=document.createElement("a");
         link.href=url;link.download=fileName;document.body.appendChild(link);link.click();link.remove();
         setTimeout(()=>URL.revokeObjectURL(url),30000);
       }
       showT(rtl?"تم تجهيز ملف الليبلات PDF":"Label PDF is ready");
     }catch(err){
-      preview.close();
       showT((rtl?"تعذّر حفظ ملف PDF: ":"Could not save PDF: ")+(err?.message||String(err)),"error");
     }finally{setSavingLabels(false);}
   };
@@ -1096,8 +1141,8 @@ export default function App(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.allOrders}</h1>
             <div style={{display:"flex",gap:10}}>
-              {warehouseOrders.length>0&&<button onClick={()=>openLabelPrint(warehouseOrders)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?`طباعة ليبلات المخزن (${warehouseOrders.length})`:`Print Warehouse Labels (${warehouseOrders.length})`}</button>}
-              {warehouseOrders.length>0&&<button disabled={savingLabels} onClick={()=>saveLabelsPdf(warehouseOrders)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {savingLabels?(rtl?"جارٍ تجهيز PDF...":"Preparing PDF..."):(rtl?`حفظ الليبلات PDF (${warehouseOrders.length})`:`Save Labels PDF (${warehouseOrders.length})`)}</button>}
+              {warehouseOrders.length>0&&<button className="label-print-action" onClick={()=>openLabelPrint(warehouseOrders)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?`طباعة ليبلات المخزن (${warehouseOrders.length})`:`Print Warehouse Labels (${warehouseOrders.length})`}</button>}
+              {warehouseOrders.length>0&&<button className="label-save-action" disabled={savingLabels} onClick={()=>saveLabelsPdf(warehouseOrders)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {savingLabels?(rtl?"جارٍ تجهيز PDF...":"Preparing PDF..."):(rtl?`حفظ ملف PDF ‏4×6 (${warehouseOrders.length})`:`Save 4×6 PDF (${warehouseOrders.length})`)}</button>}
               {can("orders")&&<button onClick={()=>setShowImport(true)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>📥 {rtl?"استيراد Excel":"Import Excel"}</button>}
               {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
             </div>
@@ -1117,8 +1162,8 @@ export default function App(){
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               {can("suppliers")&&<button onClick={()=>{setAssignSelected(selectedOrderIds);setShowAssign(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🏭 {rtl?"إسناد لمورد":"Assign Supplier"}</button>}
               {can("orders")&&<button onClick={()=>setShowBulkActions(true)} style={{background:"#0EA5E9",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔄 {rtl?"تغيير الحالة":"Change Status"}</button>}
-              {orders.some(o=>selectedOrderIds.includes(o.id)&&o.status===10)&&<button onClick={()=>openLabelPrint(orders.filter(o=>selectedOrderIds.includes(o.id)&&o.status===10))} style={{background:"#111827",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل المحدد":"Print Selected Labels"}</button>}
-              {orders.some(o=>selectedOrderIds.includes(o.id)&&o.status===10)&&<button disabled={savingLabels} onClick={()=>saveLabelsPdf(orders.filter(o=>selectedOrderIds.includes(o.id)&&o.status===10))} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {rtl?"حفظ المحدد PDF":"Save Selected PDF"}</button>}
+              {orders.some(o=>selectedOrderIds.includes(o.id)&&o.status===10)&&<button className="label-print-action" onClick={()=>openLabelPrint(orders.filter(o=>selectedOrderIds.includes(o.id)&&o.status===10))} style={{background:"#111827",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل المحدد":"Print Selected Labels"}</button>}
+              {orders.some(o=>selectedOrderIds.includes(o.id)&&o.status===10)&&<button className="label-save-action" disabled={savingLabels} onClick={()=>saveLabelsPdf(orders.filter(o=>selectedOrderIds.includes(o.id)&&o.status===10))} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {rtl?"حفظ المحدد PDF ‏4×6":"Save Selected 4×6 PDF"}</button>}
               {currentUser.role==="admin"&&<button onClick={async()=>{if(!window.confirm(rtl?`حذف ${selectedOrderIds.length} طلب؟ لا يمكن التراجع.`:`Delete ${selectedOrderIds.length} orders? Cannot be undone.`))return;try{await supabase.from("orders").delete().in("id",selectedOrderIds);}catch(e){}setOrders(prev=>prev.filter(o=>!selectedOrderIds.includes(o.id)));setSelectedOrderIds([]);showT(rtl?"تم الحذف!":"Deleted!");}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 {rtl?"حذف":"Delete"}</button>}
               <button onClick={()=>setSelectedOrderIds([])} style={{background:"transparent",border:"1px solid #6366F1",color:"#6366F1",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {rtl?"إلغاء التحديد":"Clear"}</button>
             </div>
@@ -1175,8 +1220,8 @@ export default function App(){
               </button>}
               {can("orders")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
-              {o.status===10&&<button onClick={()=>openLabelPrint(o)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل الأوردر":"Print Order Label"}</button>}
-              {o.status===10&&<button disabled={savingLabels} onClick={()=>saveLabelsPdf(o)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {savingLabels?(rtl?"جارٍ تجهيز PDF...":"Preparing PDF..."):(rtl?"حفظ الليبل PDF":"Save Label PDF")}</button>}
+              {o.status===10&&<button className="label-print-action" onClick={()=>openLabelPrint(o)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل الأوردر":"Print Order Label"}</button>}
+              {o.status===10&&<button className="label-save-action" disabled={savingLabels} onClick={()=>saveLabelsPdf(o)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {savingLabels?(rtl?"جارٍ تجهيز PDF...":"Preparing PDF..."):(rtl?"حفظ ملف PDF ‏4×6":"Save 4×6 PDF")}</button>}
               {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
               {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}

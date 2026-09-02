@@ -71,6 +71,10 @@ input,select,textarea{font-size:16px!important;} /* prevent zoom on iOS */
   /* Show hamburger */
   .mobile-menu-btn{display:flex!important;align-items:center;justify-content:center;}
 
+  /* Mobile labels: save the true 4x6 PDF instead of opening the A4 print sheet */
+  .label-print-action{display:none!important;}
+  .label-save-action{width:100%;justify-content:center;}
+
   /* Main area */
   .app-main{
     padding:60px 12px 20px!important;
