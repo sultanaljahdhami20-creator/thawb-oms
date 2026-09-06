@@ -12,6 +12,12 @@ body{margin:0;padding:0;}
 .app-sidebar{position:relative;z-index:50;transition:transform 0.25s ease;}
 .app-main{flex:1;overflow:auto;padding:28px 32px;position:relative;}
 
+/* ── Section navigation ── */
+.section-switcher{max-width:100%;overflow-x:auto;}
+.section-switcher button{border:0;background:transparent;color:#64748B;border-radius:7px;padding:8px 13px;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer;}
+.section-switcher button:hover{background:#F1F5F9;color:#1E293B;}
+.section-switcher button[data-active="true"]{background:#202F4D;color:#fff;}
+
 /* ── Mobile Menu Button ── */
 .mobile-menu-btn{display:none!important;}
 
@@ -81,6 +87,9 @@ input,select,textarea{font-size:16px!important;} /* prevent zoom on iOS */
     height:100vh;
     overflow-y:auto;
   }
+
+  .section-switcher{width:100%!important;margin-bottom:16px!important;}
+  .section-switcher button{flex:1;}
 
   /* Grids → single column */
   .grid-2col{grid-template-columns:1fr!important;}

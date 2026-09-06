@@ -174,7 +174,7 @@ export default function App(){
   const [selectedError,setSelectedError]=useState(null);
   const [showNewError,setShowNewError]=useState(false);
   const [newErrorOrderId,setNewErrorOrderId]=useState(null);
-  const [newErrorForm,setNewErrorForm]=useState({jacketOwner:"",jacketType:"",jacketSize:"",errorDescription:"",errorImageUrl:""});
+  const [newErrorForm,setNewErrorForm]=useState({jacketOwner:"",jacketType:"",jacketSize:"",affectedJackets:"1",errorDescription:"",errorImageUrl:""});
   const [errorSearch,setErrorSearch]=useState("");
   const [errorStatusFilter,setErrorStatusFilter]=useState(0);
   const [errorDateFrom,setErrorDateFrom]=useState("");
@@ -398,7 +398,11 @@ export default function App(){
         }
         if(logs)setActivityLog(logs);
         if(exps)setExpenses(exps);
-        if(jerrs)setJacketErrors(jerrs.map(e=>({...e,notes:e.notes||[],statusHistory:e.status_history||[]})));
+        if(jerrs)setJacketErrors(jerrs.map(e=>{
+          const notes=e.notes||[];
+          const savedCount=notes.find(n=>n?.type==="affected_jackets")?.value;
+          return {...e,affectedJackets:Number(savedCount)||Number(e.affected_jackets)||1,notes,statusHistory:e.status_history||[]};
+        }));
         if(supPays)setSupPayments(supPays);
         if(finSettings){
           if(finSettings.type_costs)setTypeCosts({...DEFAULT_TYPE_COSTS,...finSettings.type_costs});
@@ -606,12 +610,30 @@ export default function App(){
   const saveNewJacketError=async()=>{
     if(!newErrorForm.jacketOwner||!newErrorForm.errorDescription){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
     const order=orders.find(o=>o.id===newErrorOrderId);
+    const orderJackets=Math.max(1,Number(order?.jackets)||1);
+    const affectedJackets=Number(newErrorForm.affectedJackets);
+    if(!Number.isInteger(affectedJackets)||affectedJackets<1||affectedJackets>orderJackets){showT(rtl?`عدد الجاكيتات المتضررة يجب أن يكون بين 1 و ${orderJackets}`:`Affected jackets must be between 1 and ${orderJackets}`,"error");return;}
     const now=new Date().toISOString();
     const d=now.slice(0,10);
     const firstStatus={status:1,by:currentUser?.name||"Admin",at:now,note:""};
-    const entry={order_id:newErrorOrderId,customer_name:order?.customer||"",customer_phone:order?.phone||"",jacket_owner:newErrorForm.jacketOwner,jacket_type:newErrorForm.jacketType,jacket_size:newErrorForm.jacketSize,error_description:newErrorForm.errorDescription,error_image_url:newErrorForm.errorImageUrl,status:1,notes:[],status_history:[firstStatus],created_at:now,updated_at:now};
-    try{const {data}=await supabase.from("jacket_errors").insert({...entry,status_history:JSON.stringify([firstStatus]),notes:JSON.stringify([])}).select().single();if(data)entry.id=data.id;}catch(e){}
-    setJacketErrors(prev=>[{...entry,statusHistory:[firstStatus]},...prev]);
+    const entry={order_id:newErrorOrderId,customer_name:order?.customer||"",customer_phone:order?.phone||"",jacket_owner:newErrorForm.jacketOwner,jacket_type:newErrorForm.jacketType,jacket_size:newErrorForm.jacketSize,affected_jackets:affectedJackets,error_description:newErrorForm.errorDescription,error_image_url:newErrorForm.errorImageUrl,status:1,notes:[],status_history:[firstStatus],created_at:now,updated_at:now};
+    try{
+      let {data,error}=await supabase.from("jacket_errors").insert({...entry,status_history:JSON.stringify([firstStatus]),notes:JSON.stringify([])}).select().single();
+      // Backwards-compatible fallback until the affected_jackets migration is applied.
+      if(error&&String(error.message||"").includes("affected_jackets")){
+        const {affected_jackets:unused,...legacyEntry}=entry;
+        void unused;
+        const countNote={type:"affected_jackets",value:affectedJackets,by:currentUser?.name||"Admin",at:now};
+        ({data,error}=await supabase.from("jacket_errors").insert({...legacyEntry,status_history:JSON.stringify([firstStatus]),notes:JSON.stringify([countNote])}).select().single());
+      }
+      if(error)throw error;
+      if(data)entry.id=data.id;
+    }catch(e){
+      console.error("Failed to save jacket error",e);
+      showT(rtl?"تعذّر حفظ بلاغ الخطأ. حاول مرة أخرى.":"Could not save the error report. Please try again.","error");
+      return;
+    }
+    setJacketErrors(prev=>[{...entry,affectedJackets,statusHistory:[firstStatus]},...prev]);
     // تغيير حالة الطلب تلقائياً لـ "فيه خطأ" (13) إذا لم يكن كذلك مسبقاً
     if(order&&order.status!==13){
       try{await supabase.from("orders").update({status:13,updated:d}).eq("id",newErrorOrderId);}catch(e){}
@@ -619,8 +641,8 @@ export default function App(){
       if(selected?.id===newErrorOrderId)setSelected(s=>({...s,status:13,updated:d}));
       logActivity(rtl?"تحويل تلقائي لحالة خطأ":"Auto set to Has Issue",`${newErrorOrderId}`);
     }
-    logActivity(rtl?"تسجيل خطأ جاكيت":"Jacket error registered",`${newErrorOrderId} — ${newErrorForm.jacketOwner}`);
-    setNewErrorForm({jacketOwner:"",jacketType:"",jacketSize:"",errorDescription:"",errorImageUrl:""});
+    logActivity(rtl?"تسجيل خطأ جاكيت":"Jacket error registered",`${newErrorOrderId} — ${affectedJackets}/${orderJackets} — ${newErrorForm.jacketOwner}`);
+    setNewErrorForm({jacketOwner:"",jacketType:"",jacketSize:"",affectedJackets:"1",errorDescription:"",errorImageUrl:""});
     setShowNewError(false);setNewErrorOrderId(null);
     showT(rtl?"✅ تم تسجيل الخطأ وتحويل الطلب لحالة خطأ":"✅ Error registered & order flagged");
   };
@@ -667,7 +689,6 @@ export default function App(){
 
   const totSales=orders.reduce((s,o)=>s+o.total,0);
   const totPaid=orders.reduce((s,o)=>s+o.paid,0);
-  const overdue=orders.filter(o=>o.status<9&&o.paid<o.total&&new Date(o.date)<new Date(Date.now()-30*86400000));
   const pending=orders.filter(o=>o.paid<o.total);
 
   const filtOrd=useMemo(()=>orders.filter(o=>{
@@ -1065,8 +1086,11 @@ export default function App(){
   const IS={padding:"9px 12px",borderRadius:8,border:"1px solid "+bc,background:bgC,color:tp,fontSize:13,width:"100%",boxSizing:"border-box"};
   const Btn=(props)=><button {...props} style={{border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13,...props.style}}/>;
   const Badge=({status})=>{const s=sc(status);return <span style={{background:s.bg,color:s.color,padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{sl(status)}</span>;};
-  const NI=(id,icon,label,hidden)=>hidden?null:(
-    <button key={id} onClick={()=>{setPage(id);setMobileNav(false);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:8,width:"100%",border:"none",cursor:"pointer",flexDirection:rtl?"row-reverse":"row",background:page===id?"rgba(224,94,92,0.18)":"transparent",color:page===id?"#E05E5C":"rgba(255,255,255,0.75)",fontWeight:page===id?700:500,fontSize:14,textAlign:rtl?"right":"left"}}>
+  const orderPages=["orders","detail","warehouse"];
+  const financePages=["accounts","expenses","reports"];
+  const settingsPages=["settings","suppliers","users"];
+  const NI=(id,icon,label,hidden,target=id,related=[id])=>hidden?null:(
+    <button key={id} onClick={()=>{setPage(target);setMobileNav(false);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:8,width:"100%",border:"none",cursor:"pointer",flexDirection:rtl?"row-reverse":"row",background:related.includes(page)?"rgba(224,94,92,0.18)":"transparent",color:related.includes(page)?"#E05E5C":"rgba(255,255,255,0.75)",fontWeight:related.includes(page)?700:500,fontSize:14,textAlign:rtl?"right":"left"}}>
       <span>{icon}</span>{label}
     </button>
   );
@@ -1118,15 +1142,11 @@ export default function App(){
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{t.brandSub}</div>
         </div>
         {NI("dashboard","📊",t.dashboard,!(currentUser.role==="admin"||currentUser.dashboard!==false))}
-        {NI("orders","📋",t.orders,!can("orders"))}
+        {NI("orders","📋",t.orders,!can("orders"),"orders",orderPages)}
         {NI("errors","🔧",rtl?"أخطاء الجاكيتات":"Jacket Errors",!can("orders"))}
         {NI("refunds","↩️",rtl?"التعويضات":"Refunds",!can("orders"))}
-        {NI("suppliers","🏭",t.suppliers,!can("suppliers"))}
-        {NI("reports","📈",t.reports,!can("reports"))}
-        {NI("users","👥",t.users,currentUser.role!=="admin")}
-        {currentUser.role==="admin"&&NI("expenses","💸",rtl?"المصاريف":"Expenses")}
-        {currentUser.role==="admin"&&NI("accounts","🧮",rtl?"الحسابات":"Accounts")}
-        {currentUser.role==="admin"&&NI("settings","⚙️",rtl?"الإعدادات":"Settings")}
+        {NI("finance","🧮",rtl?"المالية":"Finance",!(currentUser.role==="admin"||can("reports")),currentUser.role==="admin"?"accounts":"reports",financePages)}
+        {NI("settingsHub","⚙️",rtl?"الإعدادات":"Settings",!(currentUser.role==="admin"||can("suppliers")),currentUser.role==="admin"?"settings":"suppliers",settingsPages)}
         <div style={{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.1)",paddingTop:12,display:"flex",flexDirection:"column",gap:4}}>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"rgba(255,255,255,0.08)",borderRadius:8,color:"#fff",fontSize:13,fontWeight:700}}>🌐 {lang==="en"?"العربية":"English"}</button>
           <button onClick={()=>setDark(!dm)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,0.6)",fontSize:13}}>{dm?"☀️":"🌙"} {dm?t.lightMode:t.darkMode}</button>
@@ -1138,6 +1158,23 @@ export default function App(){
       <main className="app-main" style={{flex:1,overflow:"auto",padding:"28px 32px"}}>
         <button className="mobile-menu-btn" onClick={()=>setMobileNav(true)} style={{display:"none",position:"fixed",top:12,left:rtl?"auto":12,right:rtl?12:"auto",zIndex:30,background:bgS,border:"none",borderRadius:8,padding:"10px 14px",cursor:"pointer",color:"#fff",fontSize:18}}>☰</button>
         {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:999,background:toast.type==="error"?"#E05E5C":"#2D7A4F",color:"#fff",padding:"12px 20px",borderRadius:10,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>{toast.type==="error"?"⚠️ ":"✓ "}{toast.msg}</div>}
+
+        {(page==="orders"||page==="warehouse")&&<div className="section-switcher" style={{background:bgC,border:"1px solid "+bc,borderRadius:10,padding:4,display:"flex",gap:4,marginBottom:20,width:"fit-content"}}>
+          <button onClick={()=>setPage("orders")} data-active={page==="orders"}>📋 {rtl?"جميع الطلبات":"All Orders"}</button>
+          <button onClick={()=>setPage("warehouse")} data-active={page==="warehouse"}>🏷️ {rtl?"طباعة طلبات المخزن":"Warehouse Labels"}</button>
+        </div>}
+
+        {financePages.includes(page)&&<div className="section-switcher" style={{background:bgC,border:"1px solid "+bc,borderRadius:10,padding:4,display:"flex",gap:4,marginBottom:20,width:"fit-content"}}>
+          {currentUser.role==="admin"&&<button onClick={()=>setPage("accounts")} data-active={page==="accounts"}>🧮 {rtl?"الحسابات":"Accounts"}</button>}
+          {currentUser.role==="admin"&&<button onClick={()=>setPage("expenses")} data-active={page==="expenses"}>💸 {rtl?"المصاريف":"Expenses"}</button>}
+          {can("reports")&&<button onClick={()=>setPage("reports")} data-active={page==="reports"}>📈 {t.reports}</button>}
+        </div>}
+
+        {settingsPages.includes(page)&&<div className="section-switcher" style={{background:bgC,border:"1px solid "+bc,borderRadius:10,padding:4,display:"flex",gap:4,marginBottom:20,width:"fit-content"}}>
+          {currentUser.role==="admin"&&<button onClick={()=>setPage("settings")} data-active={page==="settings"}>⚙️ {rtl?"النظام":"System"}</button>}
+          {can("suppliers")&&<button onClick={()=>setPage("suppliers")} data-active={page==="suppliers"}>🏭 {t.suppliers}</button>}
+          {currentUser.role==="admin"&&<button onClick={()=>setPage("users")} data-active={page==="users"}>👥 {t.users}</button>}
+        </div>}
 
         {/* DASHBOARD */}
         {page==="dashboard"&&<div>
@@ -1159,10 +1196,6 @@ export default function App(){
               {[...Array(13)].map((_,i)=>{const cnt=orders.filter(o=>o.status===i+1).length;if(!cnt)return null;const s=sc(i+1);return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+bc}}><span style={{fontSize:12,color:s.color,fontWeight:600}}>{t.statuses[i]}</span><span style={{background:s.bg,color:s.color,borderRadius:12,padding:"2px 10px",fontSize:12,fontWeight:700}}>{cnt}</span></div>;})}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:14}}>
-              <div style={{background:overdue.length?"#FEF2F2":bgC,border:"1px solid "+(overdue.length?"#FCA5A5":bc),borderRadius:12,padding:20}}>
-                <h3 style={{margin:"0 0 10px",fontSize:14,fontWeight:700,color:overdue.length?"#E05E5C":tp}}>⚠️ {t.overdueOrders} ({overdue.length})</h3>
-                {overdue.length===0?<p style={{color:"#2D7A4F",fontSize:13,margin:0}}>✓ {t.noOverdue}</p>:overdue.map(o=><div key={o.id} style={{fontSize:12,padding:"3px 0",color:"#E05E5C"}}>{o.id} — {o.customer||o.phone} — {fmt(o.total-o.paid)}</div>)}
-              </div>
               <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <h3 style={{margin:"0 0 10px",fontSize:14,fontWeight:700}}>{t.recentOrders}</h3>
                 {[...orders].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(o=>(
@@ -1253,6 +1286,40 @@ export default function App(){
             </div>
           </div>
         </div>}
+
+        {/* WAREHOUSE SHIPPING LABELS */}
+        {page==="warehouse"&&can("orders")&&(()=>{
+          const warehouseOrders=orders.filter(o=>o.status===10);
+          return <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+              <div>
+                <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🏷️ {rtl?"طباعة طلبات المخزن":"Warehouse Labels"}</h1>
+                <div style={{fontSize:13,color:tm}}>{rtl?"الطلبات الموجودة حالياً في حالة «في المخزن»":"Orders currently marked as In Warehouse"} · <b style={{color:"#202F4D"}}>{warehouseOrders.length}</b></div>
+              </div>
+              <div style={{fontSize:12,color:"#2D7A4F",fontWeight:700}}>{rtl?"جاهز لطباعة الليبلات":"Ready to print labels"}</div>
+            </div>
+            {warehouseOrders.length===0?<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}>{rtl?"لا توجد طلبات في المخزن حالياً":"No orders are currently in the warehouse"}</div>:
+            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}} className="table-scroll">
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
+                  {[t.orderNum,t.customer,t.phone,t.deliveryArea,t.jackets,rtl?"نوع الطلب":"Order Type",t.actions].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>{warehouseOrders.map(o=><tr key={o.id} style={{borderTop:"1px solid "+bc}}>
+                  <td style={{padding:"12px 14px",fontWeight:800,color:C.navyMid}}>{o.id}</td>
+                  <td style={{padding:"12px 14px",fontWeight:600}}>{o.customer||"--"}</td>
+                  <td style={{padding:"12px 14px",direction:"ltr",textAlign:rtl?"right":"left"}}>{o.phone}</td>
+                  <td style={{padding:"12px 14px",color:tm}}>{o.deliveryArea||"--"}</td>
+                  <td style={{padding:"12px 14px",fontWeight:700}}>{o.jackets}</td>
+                  <td style={{padding:"12px 14px",color:tm}}>{o.orderType||"--"}</td>
+                  <td style={{padding:"12px 14px"}}><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <button onClick={()=>openLabelPrint([o])} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:7,padding:"7px 12px",fontWeight:700,cursor:"pointer",fontSize:12}}>🏷️ {rtl?"طباعة الليبل":"Print Label"}</button>
+                    <button onClick={()=>{setSelected(o);setPage("detail");}} style={{background:C.navyLight,color:"#fff",border:"none",borderRadius:7,padding:"7px 12px",fontWeight:700,cursor:"pointer",fontSize:12}}>📋 {t.view}</button>
+                  </div></td>
+                </tr>)}</tbody>
+              </table>
+            </div>}
+          </div>;
+        })()}
 
         {/* ORDER DETAIL */}
         {page==="detail"&&selected&&(()=>{
@@ -1609,11 +1676,12 @@ export default function App(){
             ))}
           </div>
         </div>}
-        {/* JACKET ERRORS — AUTO FROM STATUS 13 */}
+        {/* JACKET ERRORS — sourced from permanent error records, plus legacy status 13 orders */}
         {page==="errors"&&can("orders")&&(()=>{
           const subLabel=(s)=>s>0?(rtl?ERROR_SUB_STATUSES_AR[s-1]:ERROR_SUB_STATUSES_EN[s-1]):(rtl?"لم تُحدَّد بعد":"Not set yet");
           const subColor=(s)=>s>0?ERROR_SUB_COLORS[s-1]:{color:"#94A3B8",bg:"#F1F5F9"};
-          const errorOrders=orders.filter(o=>o.status===13);
+          const errorOrderIds=new Set(jacketErrors.map(e=>e.order_id));
+          const errorOrders=orders.filter(o=>o.status===13||o.errorSubStatus>0||errorOrderIds.has(o.id));
           const filtErrOrd=errorOrders.filter(o=>{
             const q=errorSearch.toLowerCase();
             if(q&&!o.id.toLowerCase().includes(q)&&!o.customer?.toLowerCase().includes(q)&&!o.phone?.includes(q))return false;
@@ -1678,7 +1746,8 @@ export default function App(){
                     const sc2=ERROR_STATUS_COLORS[e.status-1]||ERROR_STATUS_COLORS[0];
                     return <div key={i} style={{background:C.slateLight,borderRadius:10,padding:"10px 14px",marginBottom:8}}>
                       <div style={{fontWeight:700,marginBottom:4}}>{e.jacket_owner}</div>
-                      <div style={{fontSize:12,color:tm,marginBottom:6}}>{e.jacket_type} · {e.jacket_size}</div>
+                      <div style={{fontSize:12,color:tm,marginBottom:6}}>{e.jacket_type||"--"} · {e.jacket_size||"--"}</div>
+                      <div style={{fontSize:12,fontWeight:800,color:"#DC2626",marginBottom:8}}>{rtl?"الجاكيتات المتضررة":"Affected jackets"}: {Number(e.affectedJackets||e.affected_jackets)||1} {rtl?"من":"of"} {o.jackets}</div>
                       <span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rtl?ERROR_STATUSES_AR[e.status-1]:ERROR_STATUSES_EN[e.status-1]}</span>
                     </div>;
                   })}
@@ -1689,7 +1758,7 @@ export default function App(){
           return <div>
             <div style={{marginBottom:16}}>
               <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🔧 {rtl?"الطلبات التي بها أخطاء":"Orders with Errors"}</h1>
-              <div style={{fontSize:13,color:tm}}>{rtl?"جميع الطلبات في حالة «فيه خطأ»":"All orders marked as Has Issue"} · <b style={{color:"#DC2626"}}>{errorOrders.length}</b> {rtl?"طلب":"orders"}</div>
+              <div style={{fontSize:13,color:tm}}>{rtl?"جميع الطلبات التي لها سجل خطأ، بما فيها الحالات المحلولة":"All orders with an error record, including resolved cases"} · <b style={{color:"#DC2626"}}>{errorOrders.length}</b> {rtl?"طلب":"orders"}</div>
             </div>
             <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
               <input value={errorSearch} onChange={e=>setErrorSearch(e.target.value)} placeholder={rtl?"بحث برقم الطلب أو العميل...":"Search by order or customer..."} style={{...IS,minWidth:220,width:"auto"}}/>
@@ -1709,16 +1778,17 @@ export default function App(){
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                   <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"الجاكيتات":"Jackets",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"المتضررة / الإجمالي":"Affected / Total",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {filtErrOrd.map((o,i)=>{
                       const sc2=subColor(o.errorSubStatus);
+                      const affected=Math.min(Number(o.jackets)||0,jacketErrors.filter(e=>e.order_id===o.id).reduce((sum,e)=>sum+(Number(e.affectedJackets||e.affected_jackets)||1),0));
                       return <tr key={o.id} style={{borderTop:"1px solid "+bc,background:i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
                         <td style={{padding:"12px 14px",fontWeight:700,color:"#DC2626"}}>{o.id}</td>
                         <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{o.customer||"--"}</div><div style={{fontSize:11,color:tm}}>{o.phone}</div></td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.supplier||"--"}</td>
-                        <td style={{padding:"12px 14px",textAlign:"center",fontWeight:700}}>{o.jackets}</td>
+                        <td style={{padding:"12px 14px",textAlign:"center",fontWeight:800,color:"#DC2626"}}>{affected} / {o.jackets}</td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
                         <td style={{padding:"12px 14px"}}>
                           <select value={o.errorSubStatus||0} onChange={e2=>updateOrderSubStatus(o,Number(e2.target.value))} style={{background:sc2.bg,color:sc2.color,border:"1px solid "+sc2.color,borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
@@ -2385,6 +2455,10 @@ export default function App(){
                   {JACKET_SIZES.map(s=><option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
+            </div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"عدد الجاكيتات المتضررة *":"Affected Jackets *"}</label>
+              <input type="number" min="1" max={Math.max(1,Number(orders.find(o=>o.id===newErrorOrderId)?.jackets)||1)} step="1" value={newErrorForm.affectedJackets} onChange={e=>setNewErrorForm(p=>({...p,affectedJackets:e.target.value}))} style={IS}/>
+              <div style={{fontSize:11,color:tm,marginTop:5}}>{rtl?"من إجمالي":"Out of"} <b>{orders.find(o=>o.id===newErrorOrderId)?.jackets||0}</b> {rtl?"جاكيت في الطلب":"jackets in this order"}</div>
             </div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"وصف الخطأ *":"Error Description *"}</label>
               <textarea value={newErrorForm.errorDescription} onChange={e=>setNewErrorForm(p=>({...p,errorDescription:e.target.value}))} rows={3} placeholder={rtl?"اشرح طبيعة الخطأ بالتفصيل...":"Describe the error in detail..."} style={{...IS,resize:"vertical"}}/>
