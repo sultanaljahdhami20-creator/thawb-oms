@@ -338,9 +338,16 @@ export default function App(){
   const [loading,setLoading]=useState(true);
   const [mobileNav,setMobileNav]=useState(false);
 
+  const parseStoredArray=(value)=>{
+    if(Array.isArray(value))return value;
+    if(typeof value!=="string"||!value.trim())return [];
+    try{const parsed=JSON.parse(value);return Array.isArray(parsed)?parsed:[];}catch{return [];}
+  };
+
   // ── Load data from Supabase on mount
   useEffect(()=>{
     const loadData=async()=>{
+      let loadedUsers=null;
       try{
         const {data:ords}=await supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false});
         const {data:sups}=await supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false});
@@ -357,13 +364,13 @@ export default function App(){
           setOrders(ords.map(o=>({
             ...o,
             payments:(o.payments||[]).map(p=>({id:p.id,date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
-            history:o.history||[],
+            history:parseStoredArray(o.history),
             extras:Number(o.extras)||0,
             deliveryArea:o.delivery_area||"",
             orderType:o.order_type||o.orderType||"",
             isUrgent:o.is_urgent||false,
             errorSubStatus:o.error_sub_status||0,
-            errorNotes:o.error_notes||[]
+            errorNotes:parseStoredArray(o.error_notes)
           })));
         }
         if(sups&&sups.length>0){
@@ -373,7 +380,6 @@ export default function App(){
             payments:(s.supplier_payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""}))
           })));
         }
-        let loadedUsers=null;
         if(usrs&&usrs.length>0){
           loadedUsers=usrs.map(u=>({
             ...u,
@@ -399,9 +405,9 @@ export default function App(){
         if(logs)setActivityLog(logs);
         if(exps)setExpenses(exps);
         if(jerrs)setJacketErrors(jerrs.map(e=>{
-          const notes=e.notes||[];
+          const notes=parseStoredArray(e.notes);
           const savedCount=notes.find(n=>n?.type==="affected_jackets")?.value;
-          return {...e,affectedJackets:Number(savedCount)||Number(e.affected_jackets)||1,notes,statusHistory:e.status_history||[]};
+          return {...e,affectedJackets:Number(savedCount)||Number(e.affected_jackets)||1,notes,statusHistory:parseStoredArray(e.status_history)};
         }));
         if(supPays)setSupPayments(supPays);
         if(finSettings){
@@ -409,20 +415,20 @@ export default function App(){
           if(finSettings.exchange_rate)setExchangeRate(Number(finSettings.exchange_rate));
         }
         if(reports)setSavedReports(reports);
-        if(refundRows)setRefunds(refundRows);
-        try{
-          const savedUserId=localStorage.getItem("thawb_user_id");
-          if(savedUserId){
-            const pool=loadedUsers||SEED_USERS;
-            const restoredUser=pool.find(u=>u.id===savedUserId);
-            if(restoredUser){
-              setCurrentUser(restoredUser);
-              setPage(restoredUser.role==="admin"||restoredUser.dashboard!==false?"dashboard":"orders");
-            }
-            else localStorage.removeItem("thawb_user_id");
+        if(refundRows)setRefunds(refundRows.map(r=>({...r,comments:parseStoredArray(r.comments),history:parseStoredArray(r.history)})));
+      }catch(e){console.error("Failed to load Supabase data",e);}
+      try{
+        const savedUserId=localStorage.getItem("thawb_user_id");
+        if(savedUserId){
+          const pool=loadedUsers||SEED_USERS;
+          const restoredUser=pool.find(u=>String(u.id)===String(savedUserId));
+          if(restoredUser){
+            setCurrentUser(restoredUser);
+            setPage(restoredUser.role==="admin"||restoredUser.dashboard!==false?"dashboard":"orders");
           }
-        }catch(e){}
-      }catch(e){console.log("Supabase not connected, using local data");}
+          else localStorage.removeItem("thawb_user_id");
+        }
+      }catch(e){console.error("Failed to restore login session",e);}
       setLoading(false);
     };
     loadData();
