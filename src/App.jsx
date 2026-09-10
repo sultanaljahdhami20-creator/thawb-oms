@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import * as XLSX from "xlsx";
 import RefundsPage from "./RefundsPage";
@@ -123,6 +123,9 @@ export default function App(){
   // ── Payments
   const [showPay,setShowPay]=useState(false);
   const [payTarget,setPayTarget]=useState(null);
+  const [savingPayment,setSavingPayment]=useState(false);
+  const [paymentRequestId,setPaymentRequestId]=useState("");
+  const paymentSubmittingRef=useRef(false);
   const [editPayIdx,setEditPayIdx]=useState(null);
   const [editPayForm,setEditPayForm]=useState({amount:"",date:""});
 
@@ -905,19 +908,42 @@ export default function App(){
     setRenumbering(false);
   };
 
+  const openPaymentModal=(order)=>{
+    setPayTarget(order);
+    setPaymentRequestId(globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random()}`);
+    paymentSubmittingRef.current=false;
+    setSavingPayment(false);
+    setShowPay(true);
+  };
+
+  const closePaymentModal=()=>{
+    if(paymentSubmittingRef.current)return;
+    setShowPay(false);setPayTarget(null);setPaymentRequestId("");
+  };
+
   const addPay=async(oid,amt,ref,note)=>{
+    if(paymentSubmittingRef.current)return;
+    paymentSubmittingRef.current=true;
+    setSavingPayment(true);
     const d=new Date().toISOString().slice(0,10);
-    let newId=null;
-    const cur=orders.find(o=>o.id===oid);
     try{
-      const {data}=await supabase.from("payments").insert({order_id:oid,amount:amt,by:currentUser?.name||"Admin",ref,note,date:d}).select().single();
-      if(data)newId=data.id;
-      await supabase.from("orders").update({paid:(cur?.paid||0)+amt,updated:d}).eq("id",oid);
-    }catch(e){}
-    const newPay={id:newId,date:d,amount:amt,by:currentUser?.name||"Admin",ref,note};
-    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid+amt,updated:d,payments:[...o.payments,newPay]}));
-    logActivity(rtl?"دفعة جديدة":"New payment",`${oid} — ${fmt(amt)}`);
-    showT(t.paymentSaved);setShowPay(false);setPayTarget(null);
+      const payload={order_id:oid,amount:amt,by:currentUser?.name||"Admin",ref:ref||"",note:note||"",date:d,request_id:paymentRequestId};
+      let {data,error}=await supabase.from("payments").insert(payload).select().single();
+      if(error?.code==="23505"){
+        const existing=await supabase.from("payments").select("*").eq("request_id",paymentRequestId).eq("order_id",oid).single();
+        data=existing.data;error=existing.error;
+      }
+      if(error)throw error;
+      const paidResult=await supabase.from("orders").select("paid").eq("id",oid).single();
+      if(paidResult.error)throw paidResult.error;
+      const newPay={id:data.id,date:data.date,amount:Number(data.amount),by:data.by||"",ref:data.ref||"",note:data.note||""};
+      const paid=Number(paidResult.data.paid);
+      setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid,updated:d,payments:o.payments.some(p=>p.id===newPay.id)?o.payments:[...o.payments,newPay]}));
+      if(selected?.id===oid)setSelected(s=>({...s,paid,updated:d,payments:s.payments.some(p=>p.id===newPay.id)?s.payments:[...s.payments,newPay]}));
+      logActivity(rtl?"دفعة جديدة":"New payment",`${oid} — ${fmt(amt)}`);
+      showT(t.paymentSaved);setShowPay(false);setPayTarget(null);setPaymentRequestId("");
+    }catch(e){showT((rtl?"تعذّر حفظ الدفعة: ":"Could not save payment: ")+(e?.message||String(e)),"error");}
+    finally{paymentSubmittingRef.current=false;setSavingPayment(false);}
   };
 
   const editPayment=async(oid,payIdx,newAmt,newDate)=>{
@@ -925,16 +951,19 @@ export default function App(){
     if(!order)return;
     const pay=order.payments[payIdx];
     const oldAmt=pay.amount;
-    const diff=newAmt-oldAmt;
     const d=new Date().toISOString().slice(0,10);
     try{
-      if(pay.id)await supabase.from("payments").update({amount:newAmt,date:newDate}).eq("id",pay.id);
-      await supabase.from("orders").update({paid:(order.paid||0)+diff,updated:d}).eq("id",oid);
-    }catch(e){}
-    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid+diff,updated:d,payments:o.payments.map((p,i)=>i!==payIdx?p:{...p,amount:newAmt,date:newDate})}));
-    if(selected?.id===oid)setSelected(s=>({...s,paid:s.paid+diff,payments:s.payments.map((p,i)=>i!==payIdx?p:{...p,amount:newAmt,date:newDate})}));
-    logActivity(rtl?"تعديل دفعة":"Payment edited",`${oid} — ${fmt(oldAmt)} → ${fmt(newAmt)}`);
-    setEditPayIdx(null);showT(rtl?"تم تعديل الدفعة":"Payment updated");
+      if(!pay.id)throw new Error(rtl?"معرّف الدفعة غير موجود":"Payment ID is missing");
+      const {data,error}=await supabase.from("payments").update({amount:newAmt,date:newDate}).eq("id",pay.id).select().single();
+      if(error)throw error;
+      const paidResult=await supabase.from("orders").select("paid").eq("id",oid).single();
+      if(paidResult.error)throw paidResult.error;
+      const paid=Number(paidResult.data.paid);
+      setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid,updated:d,payments:o.payments.map((p,i)=>i!==payIdx?p:{...p,amount:Number(data.amount),date:data.date})}));
+      if(selected?.id===oid)setSelected(s=>({...s,paid,updated:d,payments:s.payments.map((p,i)=>i!==payIdx?p:{...p,amount:Number(data.amount),date:data.date})}));
+      logActivity(rtl?"تعديل دفعة":"Payment edited",`${oid} — ${fmt(oldAmt)} → ${fmt(newAmt)}`);
+      setEditPayIdx(null);showT(rtl?"تم تعديل الدفعة":"Payment updated");
+    }catch(e){showT((rtl?"تعذّر تعديل الدفعة: ":"Could not update payment: ")+(e?.message||String(e)),"error");}
   };
 
   const deletePayment=async(oid,payIdx)=>{
@@ -944,13 +973,17 @@ export default function App(){
     const pay=order.payments[payIdx];
     const d=new Date().toISOString().slice(0,10);
     try{
-      if(pay.id)await supabase.from("payments").delete().eq("id",pay.id);
-      await supabase.from("orders").update({paid:(order.paid||0)-pay.amount,updated:d}).eq("id",oid);
-    }catch(e){}
-    setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid:o.paid-pay.amount,updated:d,payments:o.payments.filter((_,i)=>i!==payIdx)}));
-    if(selected?.id===oid)setSelected(s=>({...s,paid:s.paid-pay.amount,payments:s.payments.filter((_,i)=>i!==payIdx)}));
-    logActivity(rtl?"حذف دفعة":"Payment deleted",`${oid} — ${fmt(pay.amount)}`);
-    showT(rtl?"تم حذف الدفعة":"Payment deleted");
+      if(!pay.id)throw new Error(rtl?"معرّف الدفعة غير موجود":"Payment ID is missing");
+      const {error}=await supabase.from("payments").delete().eq("id",pay.id);
+      if(error)throw error;
+      const paidResult=await supabase.from("orders").select("paid").eq("id",oid).single();
+      if(paidResult.error)throw paidResult.error;
+      const paid=Number(paidResult.data.paid);
+      setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid,updated:d,payments:o.payments.filter((_,i)=>i!==payIdx)}));
+      if(selected?.id===oid)setSelected(s=>({...s,paid,updated:d,payments:s.payments.filter((_,i)=>i!==payIdx)}));
+      logActivity(rtl?"حذف دفعة":"Payment deleted",`${oid} — ${fmt(pay.amount)}`);
+      showT(rtl?"تم حذف الدفعة":"Payment deleted");
+    }catch(e){showT((rtl?"تعذّر حذف الدفعة: ":"Could not delete payment: ")+(e?.message||String(e)),"error");}
   };
 
   const updSt=async(oid,ns)=>{
@@ -1268,7 +1301,7 @@ export default function App(){
                       <td style={{padding:"12px 14px"}}>
                         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                           <button onClick={()=>{setSelected(o);setPage("detail");}} style={{background:C.navyLight,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>{t.view}</button>
-                          {can("payments")&&<button onClick={()=>{setPayTarget(o);setShowPay(true);}} style={{background:C.greenLight,color:"#2D7A4F",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>{t.pay}</button>}
+                          {can("payments")&&<button onClick={()=>openPaymentModal(o)} style={{background:C.greenLight,color:"#2D7A4F",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>{t.pay}</button>}
                           {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"1px solid "+(o.isUrgent?"#F97316":bc),borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:12,fontWeight:700,color:o.isUrgent?"#F97316":tm}} title={o.isUrgent?(rtl?"إلغاء المستعجل":"Remove urgent"):(rtl?"تعليم مستعجل":"Mark urgent")}>⚡</button>}
                           {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>🗑</button>}
                         </div>
@@ -1357,7 +1390,7 @@ export default function App(){
                   <span style={{fontSize:13,fontWeight:700}}>{t.remainingBalance}</span>
                   <span style={{fontSize:16,fontWeight:800,color:o.total-o.paid>0?"#E05E5C":"#2D7A4F"}}>{fmt(o.total-o.paid)}</span>
                 </div>
-                {can("payments")&&<button onClick={()=>{setPayTarget(o);setShowPay(true);}} style={{marginTop:14,width:"100%",background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>{t.recordPayment}</button>}
+                {can("payments")&&<button onClick={()=>openPaymentModal(o)} style={{marginTop:14,width:"100%",background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>{t.recordPayment}</button>}
               </div>
             </div>
             <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
@@ -2551,7 +2584,7 @@ export default function App(){
       </div>}
 
       {/* PAYMENT MODAL */}
-      {showPay&&payTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowPay(false),setPayTarget(null))}>
+      {showPay&&payTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&closePaymentModal()}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:420,maxWidth:"90vw"}}>
           <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>{t.paymentFor}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{payTarget.id} — {payTarget.customer||payTarget.phone}</p>
@@ -2566,8 +2599,8 @@ export default function App(){
             ))}
           </div>
           <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowPay(false);setPayTarget(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"9px 18px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={()=>{const a=Number(document.getElementById("payamt").value);const r=document.getElementById("payref").value;const n=document.getElementById("paynote").value;if(!a||a<=0){showT(t.invalidAmount,"error");return;}addPay(payTarget.id,a,r,n);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 22px",fontWeight:700,cursor:"pointer"}}>{t.savePayment}</button>
+            <button disabled={savingPayment} onClick={closePaymentModal} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"9px 18px",cursor:savingPayment?"not-allowed":"pointer",color:tp,opacity:savingPayment?0.6:1}}>{t.cancel}</button>
+            <button disabled={savingPayment} onClick={()=>{const a=Number(document.getElementById("payamt").value);const r=document.getElementById("payref").value;const n=document.getElementById("paynote").value;if(!a||a<=0){showT(t.invalidAmount,"error");return;}addPay(payTarget.id,a,r,n);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 22px",fontWeight:700,cursor:savingPayment?"not-allowed":"pointer",opacity:savingPayment?0.65:1}}>{savingPayment?(rtl?"جارٍ الحفظ...":"Saving..."):t.savePayment}</button>
           </div>
         </div>
       </div>}
