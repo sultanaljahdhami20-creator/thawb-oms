@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import * as XLSX from "xlsx";
+import DeliverySummary from "./DeliverySummary";
+import { DEFAULT_DELIVERY_RATE, deliverySummary, expectedNetProfit } from "./deliveryAccounting";
 import RefundsPage from "./RefundsPage";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
@@ -97,6 +99,9 @@ export default function App(){
   // ── Accounts (Financial)
   const [accTab,setAccTab]=useState("overview");
   const [typeCosts,setTypeCosts]=useState(DEFAULT_TYPE_COSTS);
+  const [deliveryRate,setDeliveryRate]=useState(DEFAULT_DELIVERY_RATE);
+  const [deliveryRateInput,setDeliveryRateInput]=useState(String(DEFAULT_DELIVERY_RATE));
+  const [savingDeliveryRate,setSavingDeliveryRate]=useState(false);
   const [exchangeRate,setExchangeRate]=useState(DEFAULT_EXCHANGE_RATE);
   const [supPayments,setSupPayments]=useState([]);
   const [savedReports,setSavedReports]=useState([]);
@@ -340,7 +345,7 @@ export default function App(){
   const [rFac,setRFac]=useState("");
   const [rType,setRType]=useState("all");
   const [showCols,setShowCols]=useState(false);
-  const [cols,setCols]=useState({orderNum:true,customer:true,phone:true,date:true,jackets:true,total:true,paid:true,balance:true,status:true,supplier:true,deliveryArea:true,deliveryPaid:true});
+  const [cols,setCols]=useState({orderNum:true,customer:true,phone:true,date:true,jackets:true,total:true,paid:true,balance:true,status:true,supplier:true,deliveryArea:true,deliveryPaid:true,deliveryCost:true,deliveryRemaining:true});
 
   const [loading,setLoading]=useState(true);
   const [mobileNav,setMobileNav]=useState(false);
@@ -419,6 +424,8 @@ export default function App(){
         }));
         if(supPays)setSupPayments(supPays);
         if(finSettings){
+          const rate=Number(finSettings.delivery_rate_omr??DEFAULT_DELIVERY_RATE);
+          setDeliveryRate(rate);setDeliveryRateInput(String(rate));
           if(finSettings.type_costs)setTypeCosts({...DEFAULT_TYPE_COSTS,...finSettings.type_costs});
           if(finSettings.exchange_rate)setExchangeRate(Number(finSettings.exchange_rate));
         }
@@ -466,6 +473,27 @@ export default function App(){
   const totalPaidToSuppliersAED=supPayments.reduce((s,p)=>s+Number(p.amount||0),0);
   const expectedRemainingAED=totalExpectedCostAED-totalPaidToSuppliersAED;
   const customerOutstandingOMR=orders.reduce((s,o)=>s+(Number(o.total||0)-Number(o.paid||0)),0);
+
+  const delivery=deliverySummary(orders,deliveryRate);
+  const salesOMR=orders.reduce((sum,o)=>sum+Number(o.total||0),0);
+  const expensesOMR=expenses.reduce((sum,e)=>sum+Number(e.amount||0),0);
+  const refundsOMR=refunds.filter(r=>["approved","paid"].includes(r.status)).reduce((sum,r)=>sum+Number(r.refund_amount||0),0);
+  const profitSummary={sales:salesOMR,supplierCost:totalExpectedCostAED/exchangeRate,expenses:expensesOMR,refunds:refundsOMR,deliveryCost:delivery.total};
+  const netProfitOMR=expectedNetProfit(profitSummary);
+
+  const saveDeliveryRate=async()=>{
+    const rate=Number(deliveryRateInput);
+    if(!deliveryRateInput.trim()||!Number.isFinite(rate)||rate<0||rate>999999999||Math.abs(rate*1000-Math.round(rate*1000))>0.000001){showT(rtl?"أدخل سعراً غير سالب، بثلاث خانات عشرية كحد أقصى":"Enter a non-negative rate with up to 3 decimal places","error");return;}
+    setSavingDeliveryRate(true);
+    try{
+      const {error}=await supabase.from("financial_settings").upsert({id:"main",exchange_rate:exchangeRate,type_costs:typeCosts,delivery_rate_omr:rate});
+      if(error)throw error;
+      setDeliveryRate(rate);
+      logActivity(rtl?"تحديث سعر التوصيل":"Delivery rate updated",`${deliveryRate} → ${rate} OMR`);
+      showT(rtl?"تم حفظ سعر التوصيل":"Delivery rate saved");
+    }catch(error){showT((rtl?"تعذر حفظ سعر التوصيل: ":"Could not save delivery rate: ")+error.message,"error");}
+    finally{setSavingDeliveryRate(false);}
+  };
 
   const saveExpense=async()=>{
     if(!newExp.date||!newExp.category||!newExp.amount){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
@@ -563,7 +591,7 @@ export default function App(){
   const saveExchangeRate=async()=>{
     const val=Number(rateEditVal);
     if(!val||val<=0){showT(rtl?"أدخل سعر صرف صحيح":"Enter valid rate","error");return;}
-    try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:val,type_costs:typeCosts});}catch(e){}
+    try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:val,type_costs:typeCosts,delivery_rate_omr:deliveryRate});}catch(e){}
     setExchangeRate(val);setShowRateEdit(false);
     logActivity(rtl?"تحديث سعر الصرف":"Exchange rate updated",`1 OMR = ${val} AED`);
     showT(rtl?"تم تحديث سعر الصرف":"Rate updated");
@@ -572,7 +600,7 @@ export default function App(){
   const saveTypeCosts=async()=>{
     const cleaned={};
     Object.keys(costsForm).forEach(k=>{cleaned[k]=Number(costsForm[k])||0;});
-    try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:exchangeRate,type_costs:cleaned});}catch(e){}
+    try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:exchangeRate,type_costs:cleaned,delivery_rate_omr:deliveryRate});}catch(e){}
     setTypeCosts(cleaned);setShowCostsEdit(false);
     logActivity(rtl?"تحديث أسعار الأنواع":"Type costs updated","");
     showT(rtl?"تم تحديث الأسعار":"Costs updated");
@@ -604,16 +632,18 @@ export default function App(){
       const paid=supPayments.filter(p=>p.supplier===s.name).reduce((sum,p)=>sum+Number(p.amount||0),0);
       return {name:s.name,orders:sOrders.length,jackets:sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),expectedCost:expCost,paid,remaining:expCost-paid};
     });
-    const netPositionOMR=bal+customerOutstandingOMR-(expectedRemainingAED/exchangeRate);
+    const netPositionOMR=bal+customerOutstandingOMR-(expectedRemainingAED/exchangeRate)-delivery.remaining;
     const report={
       created_at:now,created_by:currentUser?.name||"Admin",exchange_rate:exchangeRate,
       total_orders:orders.length,total_jackets:orders.reduce((s,o)=>s+Number(o.jackets||0),0),
       expected_cost_aed:totalExpectedCostAED,paid_suppliers_aed:totalPaidToSuppliersAED,remaining_suppliers_aed:expectedRemainingAED,
       customer_outstanding_omr:customerOutstandingOMR,available_balance_omr:bal,
       net_position_omr:netPositionOMR,net_position_aed:netPositionOMR*exchangeRate,
+      delivery_summary:{...delivery,rate:deliveryRate},
+      profit_summary:{...profitSummary,net:netProfitOMR},
       supplier_breakdown:supplierBreakdown
     };
-    try{const {data}=await supabase.from("financial_reports").insert({...report,supplier_breakdown:JSON.stringify(supplierBreakdown)}).select().single();if(data)report.id=data.id;}catch(e){}
+    try{const {data,error}=await supabase.from("financial_reports").insert({...report,supplier_breakdown:JSON.stringify(supplierBreakdown)}).select().single();if(error)throw error;report.id=data.id;}catch(error){showT((rtl?"تعذر حفظ التقرير: ":"Could not save report: ")+error.message,"error");return;}
     setSavedReports(prev=>[report,...prev]);
     logActivity(rtl?"إنشاء تقرير مالي":"Financial report generated",new Date().toLocaleDateString());
     setReportBalance("");setShowGenReport(false);
@@ -720,13 +750,15 @@ export default function App(){
     return true;
   }),[orders,rFrom,rTo,rSt,rFac,rType]);
 
-  const cLabels={orderNum:t.orderNum,customer:t.customer,phone:t.phone,date:t.date,jackets:t.jackets,total:t.total,paid:t.paid,balance:t.balance,status:t.status,supplier:t.supplier,deliveryArea:rtl?"منطقة التوصيل":"Delivery Area",deliveryPaid:t.deliveryPayment};
+  const cLabels={orderNum:t.orderNum,customer:t.customer,phone:t.phone,date:t.date,jackets:t.jackets,total:t.total,paid:t.paid,balance:t.balance,status:t.status,supplier:t.supplier,deliveryArea:rtl?"منطقة التوصيل":"Delivery Area",deliveryPaid:t.deliveryPayment,deliveryCost:rtl?"تكلفة التوصيل":"Delivery cost",deliveryRemaining:rtl?"المتبقي للتوصيل":"Delivery remaining"};
   const aCols=Object.keys(cols).filter(k=>cols[k]);
   const cv=(o,k)=>{
     if(k==="orderNum")return o.id;if(k==="customer")return o.customer||"--";if(k==="phone")return o.phone;
     if(k==="date")return o.date;if(k==="jackets")return o.jackets;if(k==="total")return fmt(o.total);
     if(k==="paid")return fmt(o.paid);if(k==="balance")return fmt(o.total-o.paid);
     if(k==="status")return sl(o.status);if(k==="supplier")return o.supplier||"--";
+    if(k==="deliveryCost")return fmtOMR(deliverySummary([o],deliveryRate).total);
+    if(k==="deliveryRemaining")return fmtOMR(deliverySummary([o],deliveryRate).remaining);
     if(k==="deliveryPaid")return deliveryText(o);
     if(k==="deliveryArea")return o.deliveryArea||"--";return "";
   };
@@ -1109,6 +1141,12 @@ export default function App(){
   // ── Export
   const exportCSV=()=>{
     const rows=[aCols.map(k=>cLabels[k]),...rFilt.map(o=>aCols.map(k=>cv(o,k)))];
+    const ds=deliverySummary(rFilt,deliveryRate);
+    rows.push([], [rtl?"حسابات التوصيل":"Delivery accounts",rtl?"المبلغ (OMR)":"Amount (OMR)"],
+      [rtl?"سعر التوصيل لكل طلب":"Delivery rate per order",deliveryRate],
+      [rtl?"إجمالي تكلفة التوصيل":"Total delivery cost",ds.total],
+      [rtl?"المدفوع للتوصيل (حسب الحالة)":"Delivery paid (by status)",ds.paid],
+      [rtl?"المتبقي دفعه للتوصيل":"Remaining delivery cost",ds.remaining]);
     const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n");
     const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8"});
     const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="thawb-report.csv";a.click();URL.revokeObjectURL(url);
@@ -1121,6 +1159,7 @@ export default function App(){
     if(isReport){
       const sT=data.reduce((s,o)=>s+o.total,0),sP=data.reduce((s,o)=>s+o.paid,0);
       body='<div class="kpis"><div class="kpi"><b style="color:#202F4D">'+data.length+'</b><small>'+t.totalOrders+'</small></div><div class="kpi"><b style="color:#202F4D">'+fmt(sT)+'</b><small>'+t.totalRevenue+'</small></div><div class="kpi"><b style="color:#2D7A4F">'+fmt(sP)+'</b><small>'+t.collected+'</small></div><div class="kpi"><b style="color:#E05E5C">'+fmt(sT-sP)+'</b><small>'+t.outstanding+'</small></div></div>'
+        +'<div class="kpis">'+[[rtl?'إجمالي تكلفة التوصيل':'Total delivery cost',deliverySummary(data,deliveryRate).total],[rtl?'المدفوع للتوصيل (حسب الحالة)':'Delivery paid (by status)',deliverySummary(data,deliveryRate).paid],[rtl?'المتبقي دفعه للتوصيل':'Remaining delivery cost',deliverySummary(data,deliveryRate).remaining]].map(([label,value])=>'<div class="kpi"><b>'+fmtOMR(value)+'</b><small>'+label+'</small></div>').join('')+'</div>'
         +'<table><thead><tr>'+aCols.map(k=>'<th>'+cLabels[k]+'</th>').join('')+'</tr></thead><tbody>'+data.map(o=>'<tr>'+aCols.map(k=>'<td>'+cv(o,k)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
     } else {
       const o=data;
@@ -1600,6 +1639,7 @@ export default function App(){
               </div>
             ))}
           </div>
+          <DeliverySummary summary={deliverySummary(rFilt,deliveryRate)} rtl={rtl} format={fmtOMR} background={bgC} border={bc} text={tp} muted={tm}/>
           <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
             <div style={{padding:"13px 20px",borderBottom:"1px solid "+bc,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:14,fontWeight:700}}>{t.reportResults}</span>
@@ -1629,6 +1669,7 @@ export default function App(){
                     if(k==="total")return <td key={k} style={{padding:"10px 14px",fontWeight:800,color:"#202F4D"}}>{fmt(rFilt.reduce((s,o)=>s+o.total,0))}</td>;
                     if(k==="paid")return <td key={k} style={{padding:"10px 14px",fontWeight:800,color:"#2D7A4F"}}>{fmt(rFilt.reduce((s,o)=>s+o.paid,0))}</td>;
                     if(k==="balance")return <td key={k} style={{padding:"10px 14px",fontWeight:800,color:"#E05E5C"}}>{fmt(rFilt.reduce((s,o)=>s+(o.total-o.paid),0))}</td>;
+                    if(k==="deliveryCost"||k==="deliveryRemaining")return <td key={k} style={{padding:"10px 14px",fontWeight:800}}>{fmtOMR(deliverySummary(rFilt,deliveryRate)[k==="deliveryCost"?"total":"remaining"])}</td>;
                     if(k==="jackets")return <td key={k} style={{padding:"10px 14px",fontWeight:800}}>{rFilt.reduce((s,o)=>s+o.jackets,0)}</td>;
                     return <td key={k} style={{padding:"10px 14px"}}></td>;
                   })}
@@ -1918,7 +1959,7 @@ export default function App(){
         {/* ACCOUNTS (Financial) */}
         {page==="accounts"&&currentUser.role==="admin"&&(()=>{
           const RATE=exchangeRate;
-          const netPosOMR=(bal)=>bal+customerOutstandingOMR-(expectedRemainingAED/RATE);
+          const netPosOMR=(bal)=>bal+customerOutstandingOMR-(expectedRemainingAED/RATE)-delivery.remaining;
           return <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:12}}>
               <h1 style={{fontSize:22,fontWeight:800,margin:0}}>🧮 {rtl?"الحسابات المالية":"Accounts"}</h1>
@@ -1930,13 +1971,15 @@ export default function App(){
 
             {/* Tabs */}
             <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap",borderBottom:"1px solid "+bc,paddingBottom:0}}>
-              {[["overview",rtl?"نظرة عامة":"Overview","📊"],["suppliers",rtl?"الموردون":"Suppliers","🏭"],["payments",rtl?"المدفوعات":"Payments","💵"],["reports",rtl?"التقارير":"Reports","📄"]].map(([tab,label,icon])=>(
+              {[["overview",rtl?"نظرة عامة":"Overview","📊"],["suppliers",rtl?"الموردون":"Suppliers","🏭"],["delivery",rtl?"التوصيل":"Delivery",""],["payments",rtl?"المدفوعات":"Payments","💵"],["reports",rtl?"التقارير":"Reports","📄"]].map(([tab,label,icon])=>(
                 <button key={tab} onClick={()=>{setAccTab(tab);setSelectedAccSup(null);setViewingReport(null);}} style={{background:accTab===tab?"#202F4D":"transparent",color:accTab===tab?"#fff":tm,border:"none",borderRadius:"8px 8px 0 0",padding:"10px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{icon} {label}</button>
               ))}
             </div>
 
             {/* ===== OVERVIEW TAB ===== */}
             {accTab==="overview"&&<div>
+              <DeliverySummary summary={delivery} rtl={rtl} format={fmtOMR} background={bgC} border={bc} text={tp} muted={tm}/>
+              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20}}><h3 style={{margin:"0 0 8px",fontSize:15}}>{rtl?"صافي الربح المتوقع":"Expected net profit"}</h3><strong style={{fontSize:25}}>{fmtOMR(netProfitOMR)}</strong><p style={{fontSize:12,color:tm,marginBottom:0}}>{rtl?"المبيعات − تكلفة الموردين − المصاريف − التعويضات المعتمدة والمدفوعة − إجمالي تكلفة التوصيل. تكلفة التوصيل تُخصم مرة واحدة.":"Sales − supplier costs − expenses − approved and paid refunds − total delivery cost. Delivery is deducted once."}</p></div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:20}}>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <div style={{fontSize:12,color:tm,marginBottom:6}}>📦 {rtl?"إجمالي الجاكيتات":"Total Jackets"}</div>
@@ -1989,6 +2032,20 @@ export default function App(){
                   </div>
                 </div>}
               </div>
+            </div>}
+
+            {accTab==="delivery"&&<div>
+              <DeliverySummary summary={delivery} rtl={rtl} format={fmtOMR} background={bgC} border={bc} text={tp} muted={tm}/>
+              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20}}>
+                <label htmlFor="delivery-rate" style={{display:"block",fontWeight:700,marginBottom:8}}>{rtl?"سعر التوصيل لكل طلب (ر.ع)":"Delivery rate per order (OMR)"}</label>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><input id="delivery-rate" type="number" min="0" step="0.001" value={deliveryRateInput} onChange={e=>setDeliveryRateInput(e.target.value)} style={{...IS,maxWidth:220}}/><button disabled={savingDeliveryRate} onClick={saveDeliveryRate} style={{background:"#202F4D",color:"#fff",border:0,borderRadius:8,padding:"10px 20px",cursor:"pointer"}}>{savingDeliveryRate?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"حفظ السعر":"Save rate")}</button></div>
+                <p style={{fontSize:12,color:tm}}>{rtl?"الافتراضي ريالان. تغيير السعر يعيد حساب الطلبات المشمولة الحالية؛ التقارير المحفوظة تبقى ثابتة.":"Default: 2 OMR. Changing the rate recalculates all currently included orders; saved reports remain unchanged."}</p>
+              </div>
+              <h3 style={{fontSize:15}}>{rtl?"طلبات متبقية للتوصيل":"Orders awaiting delivery"} ({delivery.remainingCount})</h3>
+              <div style={{overflowX:"auto",background:bgC,border:"1px solid "+bc,borderRadius:12}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead><tr>{[t.orderNum,t.customer,t.status,rtl?"المتبقي للتوصيل":"Delivery remaining"].map(label=><th key={label} style={{textAlign:rtl?"right":"left",padding:12}}>{label}</th>)}</tr></thead>
+                <tbody>{orders.filter(o=>o.deliveryPaid!==false&&![11,12].includes(Number(o.status))).map(o=><tr key={o.id} style={{borderTop:"1px solid "+bc}}><td style={{padding:12}}>{o.id}</td><td style={{padding:12}}>{o.customer||"--"}</td><td style={{padding:12}}>{sl(o.status)}</td><td style={{padding:12}}>{fmtOMR(deliveryRate)}</td></tr>)}</tbody>
+              </table>{!delivery.remainingCount&&<p style={{padding:16,color:tm}}>{rtl?"لا توجد مبالغ توصيل متبقية":"No remaining delivery costs"}</p>}</div>
             </div>}
 
             {/* ===== SUPPLIERS TAB ===== */}
@@ -2142,7 +2199,8 @@ export default function App(){
               const r=viewingReport;
               const rate=Number(r.exchange_rate)||RATE;
               const breakdown=typeof r.supplier_breakdown==="string"?JSON.parse(r.supplier_breakdown||"[]"):(r.supplier_breakdown||[]);
-              const totalAvailPlusRecv=r.available_balance_omr+r.customer_outstanding_omr;
+              const snapshotDelivery=r.delivery_summary;
+              const snapshotProfit=r.profit_summary;
               return <div>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
                   <button onClick={()=>setViewingReport(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
@@ -2161,6 +2219,12 @@ export default function App(){
                         [rtl?"التكلفة المتوقعة للموردين":"Expected Supplier Cost",r.expected_cost_aed/rate,r.expected_cost_aed],
                         [rtl?"المدفوع للموردين":"Paid to Suppliers",r.paid_suppliers_aed/rate,r.paid_suppliers_aed],
                         [rtl?"المتبقي للموردين":"Remaining to Suppliers",r.remaining_suppliers_aed/rate,r.remaining_suppliers_aed],
+                        ...(snapshotDelivery?[
+                          [rtl?"إجمالي تكلفة التوصيل":"Total delivery cost",snapshotDelivery.total,snapshotDelivery.total*rate],
+                          [rtl?"المدفوع للتوصيل (حسب الحالة)":"Delivery paid (by status)",snapshotDelivery.paid,snapshotDelivery.paid*rate],
+                          [rtl?"المتبقي دفعه للتوصيل":"Remaining delivery cost",snapshotDelivery.remaining,snapshotDelivery.remaining*rate],
+                        ]:[]),
+                        ...(snapshotProfit?[[rtl?"صافي الربح المتوقع":"Expected net profit",snapshotProfit.net,snapshotProfit.net*rate]]:[]),
                       ].map(([k,omr,aed])=>(
                         <tr key={k} style={{borderTop:"1px solid "+bc}}>
                           <td style={{padding:"10px 14px",fontWeight:600}}>{k}</td>
@@ -2184,6 +2248,7 @@ export default function App(){
                     </div>
                   ))}
                 </div>
+                {!snapshotDelivery&&<p style={{fontSize:12,color:tm}}>{rtl?"هذا التقرير سابق لإضافة حسابات التوصيل؛ لم تُعدّل قيمه التاريخية.":"This report predates delivery accounting; historical values are unchanged."}</p>}
                 {breakdown.length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                   <div style={{padding:"14px 16px",borderBottom:"1px solid "+bc,fontWeight:800,fontSize:14}}>{rtl?"تفصيل الموردين":"Supplier Breakdown"}</div>
                   <div style={{overflowX:"auto"}}>
@@ -2291,6 +2356,8 @@ export default function App(){
                   <div style={{marginBottom:4}}>📊 {rtl?"سيُحفظ:":"Will save:"}</div>
                   <div>• {rtl?"التكلفة المتوقعة:":"Expected cost:"} <b>{fmtAED(totalExpectedCostAED)}</b></div>
                   <div>• {rtl?"المتبقي للموردين:":"Supplier remaining:"} <b>{fmtAED(expectedRemainingAED)}</b></div>
+                  <div>• {rtl?"المتبقي للتوصيل:":"Delivery remaining:"} <b>{fmtOMR(delivery.remaining)}</b></div>
+                  <div>• {rtl?"صافي المركز المتوقع:":"Expected net position:"} <b>{fmtOMR(netPosOMR(Number(reportBalance)||0))}</b></div>
                   <div>• {rtl?"مستحقات العملاء:":"Customer outstanding:"} <b>{fmtOMR(customerOutstandingOMR)}</b></div>
                   <div>• {rtl?"سعر الصرف:":"Rate:"} <b>1 OMR = {RATE} AED</b></div>
                 </div>
