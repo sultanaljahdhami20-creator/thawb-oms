@@ -761,7 +761,6 @@ export default function App(){
 
   const totSales=orders.reduce((s,o)=>s+o.total,0);
   const totPaid=orders.reduce((s,o)=>s+o.paid,0);
-  const overdue=orders.filter(o=>o.status<9&&o.paid<o.total&&new Date(o.date)<new Date(Date.now()-30*86400000));
   const pending=orders.filter(o=>o.paid<o.total);
 
   const filtOrd=useMemo(()=>orders.filter(o=>{
@@ -1288,10 +1287,6 @@ export default function App(){
               {[...Array(13)].map((_,i)=>{const cnt=orders.filter(o=>o.status===i+1).length;if(!cnt)return null;const s=sc(i+1);return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+bc}}><span style={{fontSize:12,color:s.color,fontWeight:600}}>{t.statuses[i]}</span><span style={{background:s.bg,color:s.color,borderRadius:12,padding:"2px 10px",fontSize:12,fontWeight:700}}>{cnt}</span></div>;})}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:14}}>
-              <div style={{background:overdue.length?"#FEF2F2":bgC,border:"1px solid "+(overdue.length?"#FCA5A5":bc),borderRadius:12,padding:20}}>
-                <h3 style={{margin:"0 0 10px",fontSize:14,fontWeight:700,color:overdue.length?"#E05E5C":tp}}>⚠️ {t.overdueOrders} ({overdue.length})</h3>
-                {overdue.length===0?<p style={{color:"#2D7A4F",fontSize:13,margin:0}}>✓ {t.noOverdue}</p>:overdue.map(o=><div key={o.id} style={{fontSize:12,padding:"3px 0",color:"#E05E5C"}}>{o.id} — {o.customer||o.phone} — {fmt(o.total-o.paid)}</div>)}
-              </div>
               <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <h3 style={{margin:"0 0 10px",fontSize:14,fontWeight:700}}>{t.recentOrders}</h3>
                 {[...orders].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(o=>(
