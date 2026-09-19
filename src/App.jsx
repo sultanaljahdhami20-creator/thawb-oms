@@ -142,8 +142,6 @@ export default function App(){
   const [showAssign,setShowAssign]=useState(false);
   const [assignSup,setAssignSup]=useState("");
   const [assignSelected,setAssignSelected]=useState([]);
-  const [showSupPay,setShowSupPay]=useState(false);
-  const [supPayTarget,setSupPayTarget]=useState(null);
   const [showChangeSup,setShowChangeSup]=useState(false);
   const [changeSupOrder,setChangeSupOrder]=useState(null);
   const [showEditAssigned,setShowEditAssigned]=useState(false);
@@ -1097,14 +1095,6 @@ export default function App(){
     setShowAssign(false);setAssignSup("");setAssignSelected([]);setSelectedOrderIds([]);showT(t.ordersAssigned);
   };
 
-  const addSupPay=async(sid,amt,ref,note)=>{
-    const d=new Date().toISOString().slice(0,10);
-    try{await supabase.from("supplier_payments").insert({supplier_id:sid,amount:amt,ref,note,by:currentUser?.name||"Admin",date:d});}catch(e){}
-    setSuppliers(prev=>prev.map(s=>s.id!==sid?s:{...s,payments:[...(s.payments||[]),{date:d,amount:amt,ref,note,by:currentUser?.name||"Admin"}]}));
-    logActivity(rtl?"دفعة مورد":"Supplier payment",`${suppliers.find(s=>s.id===sid)?.name||sid} — ${fmt(amt)}`);
-    showT(t.paymentSaved);setShowSupPay(false);setSupPayTarget(null);
-  };
-
   // ── User actions
   const saveUser=()=>{
     if(!userForm.name||!userForm.email||!userForm.pass){showT(rtl?"يرجى تعبئة الحقول":"Fill all fields","error");return;}
@@ -1544,7 +1534,6 @@ export default function App(){
               const act=supOrders.filter(o=>o.status!==12);
               const dlv=supOrders.filter(o=>o.status===12);
               const dly=supOrders.filter(o=>o.status<9&&new Date(o.date)<new Date(Date.now()-30*86400000));
-              const totPaidToSup=(sup.payments||[]).reduce((s,p)=>s+p.amount,0);
               return <div key={sup.id} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
                   <div>
@@ -1564,45 +1553,6 @@ export default function App(){
                     </div>
                   ))}
                 </div>
-                {can("payments")&&<div style={{marginBottom:12}}>
-                  {(()=>{
-                    const totalJackets=supOrders.reduce((s,o)=>s+o.jackets,0);
-                    const unitP=Number(sup.unitPrice)||0;
-                    const estimated=totalJackets*unitP;
-                    const totPaidToSup=(sup.payments||[]).reduce((s,p)=>s+p.amount,0);
-                    const remaining=estimated-totPaidToSup;
-                    return <>
-                      {unitP>0&&<div style={{background:C.slateLight,borderRadius:8,padding:"10px 14px",marginBottom:8,fontSize:12}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{color:tm}}>{rtl?"سعر اليونيت":"Unit Price"}</span>
-                          <span style={{fontWeight:700}}>{fmt(unitP)}</span>
-                        </div>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{color:tm}}>{rtl?"إجمالي الجاكيتات":"Total Jackets"}</span>
-                          <span style={{fontWeight:700}}>{totalJackets}</span>
-                        </div>
-                        <div style={{height:1,background:bc,margin:"6px 0"}}/>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{color:tm}}>{rtl?"المبلغ التقديري":"Estimated Amount"}</span>
-                          <span style={{fontWeight:800,color:"#202F4D"}}>{fmt(estimated)}</span>
-                        </div>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                          <span style={{color:tm}}>{rtl?"المدفوع للمورد":"Paid to Supplier"}</span>
-                          <span style={{fontWeight:800,color:"#2D7A4F"}}>{fmt(totPaidToSup)}</span>
-                        </div>
-                        <div style={{height:1,background:bc,margin:"6px 0"}}/>
-                        <div style={{display:"flex",justifyContent:"space-between"}}>
-                          <span style={{fontWeight:700}}>{rtl?"الباقي للمورد":"Remaining"}</span>
-                          <span style={{fontWeight:900,fontSize:15,color:remaining>0?"#E05E5C":"#2D7A4F"}}>{fmt(remaining)}</span>
-                        </div>
-                      </div>}
-                      {!unitP&&<div style={{background:"#FFF7ED",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:12,color:"#92400E"}}>
-                        ⚠️ {rtl?"لم يُحدَّد سعر اليونيت بعد":"Unit price not set yet"}
-                      </div>}
-                      <button onClick={()=>{setSupPayTarget(sup);setShowSupPay(true);}} style={{width:"100%",background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"8px",fontWeight:700,cursor:"pointer",fontSize:12}}>{t.supplierPayment}</button>
-                    </>;
-                  })()}
-                </div>}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                   <span style={{fontSize:12,fontWeight:600,color:tm}}>{t.activeOrdersLabel}</span>
                   {can("suppliers")&&<button onClick={()=>{setEditAssignedSup(sup);setEditAssignedSelected(supOrders.map(o=>o.id));setShowEditAssigned(true);}} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:tp}}>✏️ {rtl?"تعديل الطلبات":"Edit Orders"}</button>}
@@ -2737,24 +2687,6 @@ export default function App(){
         </div>
       </div>}
 
-      {/* SUPPLIER PAY MODAL */}
-      {showSupPay&&supPayTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowSupPay(false),setSupPayTarget(null))}>
-        <div style={{background:bgC,borderRadius:16,padding:32,width:400,maxWidth:"90vw"}}>
-          <h2 style={{margin:"0 0 8px",fontSize:18,fontWeight:800}}>💰 {t.supplierPayment}</h2>
-          <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{supPayTarget.name}</p>
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            {[[t.payAmount,"spayamt","number"],[t.refNumber,"spayref","text"],[t.notes,"spaynote","text"]].map(([label,id,type])=>(
-              <div key={id}><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{label}</label>
-              <input type={type} id={id} placeholder={id==="spaynote"?t.notesPlaceholder:""} style={IS}/></div>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowSupPay(false);setSupPayTarget(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"9px 18px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={()=>{const a=Number(document.getElementById("spayamt").value);const r=document.getElementById("spayref").value;const n=document.getElementById("spaynote").value;if(!a||a<=0){showT(t.invalidAmount,"error");return;}addSupPay(supPayTarget.id,a,r,n);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 22px",fontWeight:700,cursor:"pointer"}}>{t.savePayment}</button>
-          </div>
-        </div>
-      </div>}
-
       {/* ADD/EDIT SUPPLIER */}
       {showAddSup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowAddSup(false),setEditSup(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:420,maxWidth:"90vw"}}>
@@ -2764,11 +2696,6 @@ export default function App(){
               <div key={field}><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{label}</label>
               <input value={supForm[field]} onChange={e=>setSupForm(p=>({...p,[field]:e.target.value}))} style={IS}/></div>
             ))}
-            <div>
-              <label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"سعر اليونيت (ر.ع)":"Unit Price (OMR)"}</label>
-              <input type="number" value={supForm.unitPrice} onChange={e=>setSupForm(p=>({...p,unitPrice:e.target.value}))} placeholder="0.000" style={IS}/>
-              <div style={{fontSize:11,color:tm,marginTop:4}}>{rtl?"سعر الجاكيت الواحد عند هذا المورد":"Price per jacket from this supplier"}</div>
-            </div>
           </div>
           <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowAddSup(false);setEditSup(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
