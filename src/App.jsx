@@ -40,9 +40,9 @@ const SEED_USERS=[
 const ORDER_TYPES_EN=["Cotton Full","Full Leather","Cotton & Leather","Hoodie","Mix"];
 const ORDER_TYPES_AR=["قطن كامل","جلد كامل","قطن وجلد","هودي","مكس"];
 const JACKET_SIZES=["XS","S","M","L","XL","XXL","3XL","4XL","5XL","مقاس خاص"];
-const ERROR_SUB_STATUSES_AR=["تم استلامه من العميل","في المخزن","تم الإرسال للمصنع","في التعديل","انتهى التعديل","في انتظار الشحن","في المخزن (بعد المصنع)","تم إرساله للعميل"];
-const ERROR_SUB_STATUSES_EN=["Received from Client","In Warehouse","Sent to Factory","Under Modification","Modification Done","Waiting for Shipping","In Warehouse (Post-Factory)","Sent to Client"];
-const ERROR_SUB_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#22C55E",bg:"#F0FDF4"}];
+const ERROR_SUB_STATUSES_AR=["تم استلامه من العميل","في المخزن","تم الإرسال للمصنع","في التعديل","انتهى التعديل","في انتظار الشحن","في المخزن (بعد المصنع)","تم إرساله للعميل","تم رفض الطلب"];
+const ERROR_SUB_STATUSES_EN=["Received from Client","In Warehouse","Sent to Factory","Under Modification","Modification Done","Waiting for Shipping","In Warehouse (Post-Factory)","Sent to Client","Request Rejected"];
+const ERROR_SUB_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#64748B",bg:"#F1F5F9"}];
 const ERROR_STATUSES_AR=["تم تسجيل الخطأ","بانتظار استلام الجاكيت من العميل","تم استلام الجاكيت","تم إرساله إلى المصنع","قيد التعديل","تم الانتهاء من التعديل","تم استلامه من المصنع","جاهز للتسليم","تم تسليمه إلى العميل","تم إغلاق الحالة","يحتاج إلى استبدال"];
 const ERROR_STATUSES_EN=["Error Registered","Waiting to Receive Jacket","Jacket Received","Sent to Factory","Under Modification","Modification Done","Received from Factory","Ready for Delivery","Delivered to Client","Case Closed","Needs Replacement"];
 const ERROR_STATUS_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#2D7A4F",bg:"#D1FAE5"},{color:"#94A3B8",bg:"#F1F5F9"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -1769,7 +1769,12 @@ export default function App(){
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,flexWrap:"wrap"}}>
                 <button onClick={()=>setSelectedError(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
                 <h1 style={{fontSize:20,fontWeight:800,margin:0,flex:1}}>🔧 {rtl?"طلب فيه خطأ":"Error Order"} — {o.id}</h1>
-                <button onClick={()=>openDismissError(o)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>{rtl?"إزالة من قائمة الأخطاء":"Remove from Errors"}</button>
+                <details style={{position:"relative"}}>
+                  <summary aria-label={rtl?"خيارات الطلب":"Order options"} title={rtl?"خيارات الطلب":"Order options"} style={{listStyle:"none",cursor:"pointer",color:tm,padding:"4px 10px",fontSize:22,lineHeight:1,borderRadius:6}}>⋯</summary>
+                  <div style={{position:"absolute",insetInlineEnd:0,top:"100%",marginTop:6,minWidth:190,background:bgC,border:"1px solid "+bc,borderRadius:8,padding:4,zIndex:10,boxShadow:"0 4px 12px rgba(26,39,68,0.1)"}}>
+                    <button onClick={e=>{e.currentTarget.closest("details").open=false;openDismissError(o);}} style={{display:"block",width:"100%",background:"transparent",color:tp,border:"none",borderRadius:6,padding:"9px 12px",textAlign:"start",cursor:"pointer",fontSize:12}}>{rtl?"إزالة من قائمة الأخطاء":"Remove from Errors"}</button>
+                  </div>
+                </details>
                 <button onClick={()=>{setSelected(o);setPage("detail");setSelectedError(null);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {rtl?"فتح الطلب الأصلي":"Open Original Order"}</button>
               </div>
               <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
@@ -1873,7 +1878,7 @@ export default function App(){
                         </td>
                         <td style={{padding:"12px 14px",textAlign:"center"}}><span style={{background:(o.errorNotes||[]).length>0?"#EEF2FF":"transparent",color:"#6366F1",borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:700}}>{(o.errorNotes||[]).length>0?`💬 ${(o.errorNotes||[]).length}`:""}</span></td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12,whiteSpace:"nowrap"}}>{o.updated||o.date||"--"}</td>
-                        <td style={{padding:"12px 14px"}}><div style={{display:"flex",gap:6,flexWrap:"wrap"}}><button onClick={()=>setSelectedError(o)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button><button onClick={()=>openDismissError(o)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"إزالة من الأخطاء":"Remove from Errors"}</button></div></td>
+                        <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedError(o)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
                       </tr>;
                     })}
                   </tbody>
