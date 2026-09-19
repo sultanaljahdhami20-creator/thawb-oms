@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import DeliverySummary from "./DeliverySummary";
 import { DEFAULT_DELIVERY_RATE, deliverySummary, expectedNetProfit } from "./deliveryAccounting";
 import RefundsPage from "./RefundsPage";
+import { isErrorOrder, dismissOrderError } from "./errorOrders";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
 const SC=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#EC4899",bg:"#FDF2F8"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#3B82F6",bg:"#EFF6FF"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#7C3AED",bg:"#F5F3FF"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -180,6 +181,10 @@ export default function App(){
   // ── Jacket Errors
   const [jacketErrors,setJacketErrors]=useState([]);
   const [selectedError,setSelectedError]=useState(null);
+  const [dismissErrorTarget,setDismissErrorTarget]=useState(null);
+  const [dismissErrorStatus,setDismissErrorStatus]=useState(0);
+  const [dismissingError,setDismissingError]=useState(false);
+  const dismissErrorLock=useRef(false);
   const [showNewError,setShowNewError]=useState(false);
   const [newErrorOrderId,setNewErrorOrderId]=useState(null);
   const [newErrorForm,setNewErrorForm]=useState({jacketOwner:"",jacketType:"",jacketSize:"",affectedJackets:"1",errorDescription:"",errorImageUrl:""});
@@ -523,12 +528,38 @@ export default function App(){
 
   const updateOrderSubStatus=async(o,subSt)=>{
     const d=new Date().toISOString().slice(0,10);
-    try{await supabase.from("orders").update({error_sub_status:subSt,updated:d}).eq("id",o.id);if(error)throw error;}catch(e){showT((rtl?"تعذر حفظ التعديل: ":"Could not save changes: ")+e.message,"error");return;}
+    try{
+      const {error}=await supabase.from("orders").update({error_sub_status:subSt,updated:d}).eq("id",o.id);
+      if(error)throw error;
+    }catch(e){showT((rtl?"تعذر حفظ التعديل: ":"Could not save changes: ")+e.message,"error");return;}
     setOrders(prev=>prev.map(x=>x.id!==o.id?x:{...x,errorSubStatus:subSt,updated:d}));
     if(selectedError?.id===o.id)setSelectedError(s=>({...s,errorSubStatus:subSt}));
     const label=subSt>0?(rtl?ERROR_SUB_STATUSES_AR[subSt-1]:ERROR_SUB_STATUSES_EN[subSt-1]):"--";
     logActivity(rtl?"تحديث حالة الخطأ الفرعية":"Error sub-status updated",`${o.id} → ${label}`);
     showT(rtl?"تم تحديث الحالة الفرعية":"Sub-status updated");
+  };
+
+  const openDismissError=(order)=>{
+    setDismissErrorTarget(order);
+    setDismissErrorStatus(order.status===13?0:Number(order.status));
+  };
+
+  const removeOrderFromErrors=async()=>{
+    if(!can("orders")||!dismissErrorTarget||dismissErrorLock.current)return;
+    if(!dismissErrorStatus){showT(rtl?"اختر الحالة الصحيحة للطلب":"Select the correct order status","error");return;}
+    dismissErrorLock.current=true;
+    setDismissingError(true);
+    try{
+      const saved=await dismissOrderError(supabase,dismissErrorTarget,dismissErrorStatus);
+      setOrders(prev=>prev.map(o=>o.id===saved.id?{...o,...saved}:o));
+      if(selected?.id===saved.id)setSelected(o=>({...o,...saved}));
+      if(selectedError?.id===saved.id)setSelectedError(null);
+      setDismissErrorTarget(null);
+      logActivity(rtl?"إزالة طلب من قائمة الأخطاء":"Order removed from errors",saved.id);
+      showT(rtl?"تمت إزالة الطلب من قائمة الأخطاء":"Order removed from errors");
+    }catch(error){
+      showT((rtl?"تعذرت إزالة الطلب: ":"Could not remove order: ")+error.message,"error");
+    }finally{dismissErrorLock.current=false;setDismissingError(false);}
   };
 
   const addErrorNote=async(orderId)=>{
@@ -1724,8 +1755,7 @@ export default function App(){
         {page==="errors"&&can("orders")&&(()=>{
           const subLabel=(s)=>s>0?(rtl?ERROR_SUB_STATUSES_AR[s-1]:ERROR_SUB_STATUSES_EN[s-1]):(rtl?"لم تُحدَّد بعد":"Not set yet");
           const subColor=(s)=>s>0?ERROR_SUB_COLORS[s-1]:{color:"#94A3B8",bg:"#F1F5F9"};
-          const errorOrderIds=new Set(jacketErrors.map(e=>e.order_id));
-          const errorOrders=orders.filter(o=>o.status===13||o.errorSubStatus>0||errorOrderIds.has(o.id));
+          const errorOrders=orders.filter(o=>isErrorOrder(o,jacketErrors));
           const filtErrOrd=errorOrders.filter(o=>{
             const q=errorSearch.toLowerCase();
             if(q&&!o.id.toLowerCase().includes(q)&&!o.customer?.toLowerCase().includes(q)&&!o.phone?.includes(q))return false;
@@ -1739,6 +1769,7 @@ export default function App(){
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,flexWrap:"wrap"}}>
                 <button onClick={()=>setSelectedError(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
                 <h1 style={{fontSize:20,fontWeight:800,margin:0,flex:1}}>🔧 {rtl?"طلب فيه خطأ":"Error Order"} — {o.id}</h1>
+                <button onClick={()=>openDismissError(o)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>{rtl?"إزالة من قائمة الأخطاء":"Remove from Errors"}</button>
                 <button onClick={()=>{setSelected(o);setPage("detail");setSelectedError(null);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {rtl?"فتح الطلب الأصلي":"Open Original Order"}</button>
               </div>
               <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
@@ -1842,7 +1873,7 @@ export default function App(){
                         </td>
                         <td style={{padding:"12px 14px",textAlign:"center"}}><span style={{background:(o.errorNotes||[]).length>0?"#EEF2FF":"transparent",color:"#6366F1",borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:700}}>{(o.errorNotes||[]).length>0?`💬 ${(o.errorNotes||[]).length}`:""}</span></td>
                         <td style={{padding:"12px 14px",color:tm,fontSize:12,whiteSpace:"nowrap"}}>{o.updated||o.date||"--"}</td>
-                        <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedError(o)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
+                        <td style={{padding:"12px 14px"}}><div style={{display:"flex",gap:6,flexWrap:"wrap"}}><button onClick={()=>setSelectedError(o)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button><button onClick={()=>openDismissError(o)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"إزالة من الأخطاء":"Remove from Errors"}</button></div></td>
                       </tr>;
                     })}
                   </tbody>
@@ -2503,6 +2534,24 @@ export default function App(){
       </main>
 
       {/* NEW ORDER MODAL */}
+      {dismissErrorTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!dismissingError&&setDismissErrorTarget(null)}>
+        <div role="dialog" aria-modal="true" aria-labelledby="dismiss-error-title" style={{background:bgC,borderRadius:16,padding:28,width:460,maxWidth:"95vw"}}>
+          <h2 id="dismiss-error-title" style={{margin:"0 0 12px",fontSize:18}}>{rtl?"إزالة من قائمة الأخطاء":"Remove from Errors"}</h2>
+          <p style={{fontWeight:700}}>{dismissErrorTarget.id} — {dismissErrorTarget.customer||dismissErrorTarget.phone}</p>
+          <p style={{color:tm,fontSize:14,lineHeight:1.7}}>{rtl?"سيخرج الطلب من قائمة الأخطاء، مع الاحتفاظ بالطلب الأصلي ومدفوعاته وسجل الملاحظات والبلاغات. إذا سُجّل خطأ جديد سيظهر مجددًا.":"The order will leave the errors list. Its payments, notes and past reports will be kept. A new error report will bring it back to the list."}</p>
+          {dismissErrorTarget.status===13?<div style={{marginBottom:20}}>
+            <label htmlFor="dismiss-error-status" style={{display:"block",fontSize:13,fontWeight:700,marginBottom:8}}>{rtl?"الحالة الصحيحة للطلب":"Correct order status"}</label>
+            <select id="dismiss-error-status" value={dismissErrorStatus} disabled={dismissingError} onChange={e=>setDismissErrorStatus(Number(e.target.value))} style={IS}>
+              <option value={0}>{rtl?"اختر الحالة":"Select status"}</option>
+              {t.statuses.slice(0,12).map((label,i)=><option key={i} value={i+1}>{label}</option>)}
+            </select>
+          </div>:<p style={{fontSize:13,color:tm}}>{rtl?"حالة الطلب ستبقى:":"Order status will remain:"} <b>{sl(dismissErrorStatus)}</b></p>}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:10,marginTop:22}}>
+            <button disabled={dismissingError} onClick={()=>setDismissErrorTarget(null)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 18px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+            <button disabled={dismissingError||!dismissErrorStatus} onClick={removeOrderFromErrors} style={{background:"#DC2626",color:"#fff",border:"none",borderRadius:8,padding:"10px 18px",fontWeight:700,cursor:dismissingError?"wait":"pointer",opacity:dismissingError||!dismissErrorStatus?0.6:1}}>{dismissingError?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"إزالة من القائمة":"Remove from List")}</button>
+          </div>
+        </div>
+      </div>}
       {/* NEW JACKET ERROR MODAL */}
       {showNewError&&newErrorOrderId&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowNewError(false)}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
