@@ -5,6 +5,7 @@ import DeliverySummary from "./DeliverySummary";
 import { DEFAULT_DELIVERY_RATE, deliverySummary, expectedNetProfit } from "./deliveryAccounting";
 import RefundsPage from "./RefundsPage";
 import { isErrorOrder, dismissOrderError } from "./errorOrders";
+import InstallApp from "./InstallApp";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
 const SC=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#EC4899",bg:"#FDF2F8"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#3B82F6",bg:"#EFF6FF"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#7C3AED",bg:"#F5F3FF"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -1202,7 +1203,7 @@ export default function App(){
   // ── LOADING SCREEN
   if(loading){
     return(
-      <div style={{minHeight:"100vh",background:"#0F1629",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,system-ui,sans-serif"}}>
+      <div style={{minHeight:"100dvh",background:"#0F1629",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,system-ui,sans-serif"}}>
         <div style={{textAlign:"center"}}>
           <div style={{fontSize:32,fontWeight:900,color:"#E05E5C",letterSpacing:2,marginBottom:16}}>THAWB</div>
           <div style={{color:"#94A3B8",fontSize:14}}>Loading...</div>
@@ -1214,7 +1215,7 @@ export default function App(){
   // ── LOGIN SCREEN
   if(!currentUser){
     return(
-      <div style={{minHeight:"100vh",background:"#0F1629",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,system-ui,sans-serif"}}>
+      <div className="login-screen" style={{minHeight:"100dvh",background:"#0F1629",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,system-ui,sans-serif"}}>
         <div style={{background:"#1A2744",borderRadius:16,padding:40,width:360,maxWidth:"90vw",border:"1px solid #2A3F66"}}>
           <div style={{textAlign:"center",marginBottom:28}}>
             <div style={{fontSize:32,fontWeight:900,color:"#E05E5C",letterSpacing:2}}>THAWB</div>
@@ -1231,6 +1232,7 @@ export default function App(){
               <input type="password" value={loginPass} onChange={e=>setLoginPass(e.target.value)} placeholder="••••••••" style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A3F66",background:"#0F1629",color:"#F1F5F9",fontSize:13,boxSizing:"border-box"}} onKeyDown={e=>e.key==="Enter"&&doLogin()}/>
             </div>
             <button onClick={doLogin} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"12px",fontWeight:800,cursor:"pointer",fontSize:15,marginTop:4}}>Login →</button>
+            <InstallApp rtl={rtl}/>
           </div>
         </div>
       </div>
@@ -1238,7 +1240,7 @@ export default function App(){
   }
 
   return(
-    <div className="app-layout" style={{display:"flex",height:"100vh",fontFamily:"Inter,system-ui,sans-serif",background:bgP,color:tp,direction:dir}}>
+    <div className="app-layout" dir={dir} style={{display:"flex",height:"100dvh",fontFamily:"Inter,system-ui,sans-serif",background:bgP,color:tp,direction:dir}}>
       {mobileNav&&<div className="mobile-overlay" onClick={()=>setMobileNav(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:40}}/>}
       <aside className={`app-sidebar${mobileNav?" sidebar-open":""}`} style={{width:220,background:bgS,display:"flex",flexDirection:"column",padding:"20px 12px",gap:4,flexShrink:0,order:rtl?1:0}}>
         <div style={{padding:"8px 4px 24px",borderBottom:"1px solid rgba(255,255,255,0.1)",marginBottom:8}}>
@@ -1256,6 +1258,7 @@ export default function App(){
         {currentUser.role==="admin"&&NI("accounts","🧮",rtl?"الحسابات":"Accounts")}
         {currentUser.role==="admin"&&NI("settings","⚙️",rtl?"الإعدادات":"Settings")}
         <div style={{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.1)",paddingTop:12,display:"flex",flexDirection:"column",gap:4}}>
+          <InstallApp rtl={rtl}/>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"rgba(255,255,255,0.08)",borderRadius:8,color:"#fff",fontSize:13,fontWeight:700}}>🌐 {lang==="en"?"العربية":"English"}</button>
           <button onClick={()=>setDark(!dm)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,0.6)",fontSize:13}}>{dm?"☀️":"🌙"} {dm?t.lightMode:t.darkMode}</button>
           <button onClick={()=>{setCurrentUser(null);try{localStorage.removeItem("thawb_user_id");}catch(e){}}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"transparent",color:"rgba(255,255,255,0.4)",fontSize:12}}>🚪 {rtl?"خروج":"Logout"}</button>
