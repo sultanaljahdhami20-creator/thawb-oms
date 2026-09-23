@@ -6,6 +6,9 @@ import { DEFAULT_DELIVERY_RATE, deliverySummary, expectedNetProfit } from "./del
 import RefundsPage from "./RefundsPage";
 import { isErrorOrder, dismissOrderError } from "./errorOrders";
 import InstallApp from "./InstallApp";
+import PermissionEditor from "./PermissionEditor";
+import { PERMISSIONS, hasPermission, canManageUser, canSaveUser, initialPage, persistUser } from "./permissions";
+import { createOrderWithPayment } from "./orderCreation";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
 const SC=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#EC4899",bg:"#FDF2F8"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#3B82F6",bg:"#EFF6FF"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#7C3AED",bg:"#F5F3FF"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -41,9 +44,9 @@ const SEED_USERS=[
 const ORDER_TYPES_EN=["Cotton Full","Full Leather","Cotton & Leather","Hoodie","Mix"];
 const ORDER_TYPES_AR=["قطن كامل","جلد كامل","قطن وجلد","هودي","مكس"];
 const JACKET_SIZES=["XS","S","M","L","XL","XXL","3XL","4XL","5XL","مقاس خاص"];
-const ERROR_SUB_STATUSES_AR=["تم استلامه من العميل","في المخزن","تم الإرسال للمصنع","في التعديل","انتهى التعديل","في انتظار الشحن","في المخزن (بعد المصنع)","تم إرساله للعميل","تم رفض الطلب"];
-const ERROR_SUB_STATUSES_EN=["Received from Client","In Warehouse","Sent to Factory","Under Modification","Modification Done","Waiting for Shipping","In Warehouse (Post-Factory)","Sent to Client","Request Rejected"];
-const ERROR_SUB_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#64748B",bg:"#F1F5F9"}];
+const ERROR_SUB_STATUSES_AR=["تم استلامه من العميل","في المخزن","تم الإرسال للمصنع","في التعديل","انتهى التعديل","في انتظار الشحن","في المخزن (بعد المصنع)","تم إرساله للعميل","تم رفض الطلب","تمت المراجعة — للاسترجاع"];
+const ERROR_SUB_STATUSES_EN=["Received from Client","In Warehouse","Sent to Factory","Under Modification","Modification Done","Waiting for Shipping","In Warehouse (Post-Factory)","Sent to Client","Request Rejected","To Refund"];
+const ERROR_SUB_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#64748B",bg:"#F1F5F9"},{color:"#BE185D",bg:"#FCE7F3"}];
 const ERROR_STATUSES_AR=["تم تسجيل الخطأ","بانتظار استلام الجاكيت من العميل","تم استلام الجاكيت","تم إرساله إلى المصنع","قيد التعديل","تم الانتهاء من التعديل","تم استلامه من المصنع","جاهز للتسليم","تم تسليمه إلى العميل","تم إغلاق الحالة","يحتاج إلى استبدال"];
 const ERROR_STATUSES_EN=["Error Registered","Waiting to Receive Jacket","Jacket Received","Sent to Factory","Under Modification","Modification Done","Received from Factory","Ready for Delivery","Delivered to Client","Case Closed","Needs Replacement"];
 const ERROR_STATUS_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#2D7A4F",bg:"#D1FAE5"},{color:"#94A3B8",bg:"#F1F5F9"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -152,6 +155,8 @@ export default function App(){
   // ── Users
   const [showAddUser,setShowAddUser]=useState(false);
   const [editUser,setEditUser]=useState(null);
+  const savingUserRef=useRef(false);
+  const [savingUser,setSavingUser]=useState(false);
   const [userForm,setUserForm]=useState({name:"",email:"",role:"cs",pass:"",dashboard:true,perms:{orders:true,payments:true,reports:false,suppliers:false,users:false}});
 
   // ── Settings
@@ -443,7 +448,7 @@ export default function App(){
           const restoredUser=pool.find(u=>String(u.id)===String(savedUserId));
           if(restoredUser){
             setCurrentUser(restoredUser);
-            setPage(restoredUser.role==="admin"||restoredUser.dashboard!==false?"dashboard":"orders");
+            setPage(initialPage(restoredUser));
           }
           else localStorage.removeItem("thawb_user_id");
         }
@@ -460,7 +465,7 @@ export default function App(){
   const sc=(id)=>SC[id-1]||SC[0];
   const showT=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
-  const can=(perm)=>currentUser?.perms?.[perm]||currentUser?.role==="admin";
+  const can=(perm)=>hasPermission(currentUser,perm);
 
   // ── Financial helpers
   const toAED=(omr)=>Number(omr||0)*exchangeRate;
@@ -486,6 +491,7 @@ export default function App(){
   const netProfitOMR=expectedNetProfit(profitSummary);
 
   const saveDeliveryRate=async()=>{
+    if(!can("accounts"))return;
     const rate=Number(deliveryRateInput);
     if(!deliveryRateInput.trim()||!Number.isFinite(rate)||rate<0||rate>999999999||Math.abs(rate*1000-Math.round(rate*1000))>0.000001){showT(rtl?"أدخل سعراً غير سالب، بثلاث خانات عشرية كحد أقصى":"Enter a non-negative rate with up to 3 decimal places","error");return;}
     setSavingDeliveryRate(true);
@@ -500,6 +506,7 @@ export default function App(){
   };
 
   const saveExpense=async()=>{
+    if(!can("expenses"))return;
     if(!newExp.date||!newExp.category||!newExp.amount){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
     const entry={date:newExp.date,category:newExp.category,amount:Number(newExp.amount),note:newExp.note,by:currentUser?.name||"Admin",created_at:new Date().toISOString()};
     try{const {data}=await supabase.from("expenses").insert(entry).select().single();if(data)entry.id=data.id;}catch(e){}
@@ -510,6 +517,7 @@ export default function App(){
   };
 
   const deleteExpense=async(exp)=>{
+    if(!can("expenses"))return;
     if(!window.confirm(rtl?"حذف هذا المصروف؟":"Delete this expense?"))return;
     try{await supabase.from("expenses").delete().eq("id",exp.id);}catch(e){}
     setExpenses(prev=>prev.filter(e=>e.id!==exp.id));
@@ -526,6 +534,7 @@ export default function App(){
   };
 
   const updateOrderSubStatus=async(o,subSt)=>{
+    if(!can("errors"))return;
     const d=new Date().toISOString().slice(0,10);
     try{
       const {error}=await supabase.from("orders").update({error_sub_status:subSt,updated:d}).eq("id",o.id);
@@ -544,7 +553,7 @@ export default function App(){
   };
 
   const removeOrderFromErrors=async()=>{
-    if(!can("orders")||!dismissErrorTarget||dismissErrorLock.current)return;
+    if(!can("errors")||!dismissErrorTarget||dismissErrorLock.current)return;
     if(!dismissErrorStatus){showT(rtl?"اختر الحالة الصحيحة للطلب":"Select the correct order status","error");return;}
     dismissErrorLock.current=true;
     setDismissingError(true);
@@ -562,6 +571,7 @@ export default function App(){
   };
 
   const addErrorNote=async(orderId)=>{
+    if(!can("errors"))return;
     if(!noteText.trim()){showT(rtl?"اكتب ملاحظة":"Write a note","error");return;}
     const now=new Date().toISOString();
     const note={text:noteText.trim(),by:currentUser?.name||"Admin",at:now};
@@ -581,6 +591,7 @@ export default function App(){
   };
 
   const openRefundRequest=(orderId="")=>{
+    if(!can("refunds"))return;
     setRefundOrderId(orderId);
     setRefundReason("delay");
     setRefundComment("");
@@ -588,6 +599,7 @@ export default function App(){
   };
 
   const submitRefundRequest=async()=>{
+    if(!can("refunds"))return;
     const order=orders.find(o=>o.id===refundOrderId);
     if(!order){showT(rtl?"اختر الطلب":"Select an order","error");return;}
     if(!refundComment.trim()){showT(rtl?"اكتب تفاصيل سبب التعويض":"Write the compensation details","error");return;}
@@ -619,6 +631,7 @@ export default function App(){
 
   // ── Financial actions
   const saveExchangeRate=async()=>{
+    if(!can("accounts"))return;
     const val=Number(rateEditVal);
     if(!val||val<=0){showT(rtl?"أدخل سعر صرف صحيح":"Enter valid rate","error");return;}
     try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:val,type_costs:typeCosts,delivery_rate_omr:deliveryRate});}catch(e){}
@@ -628,6 +641,7 @@ export default function App(){
   };
 
   const saveTypeCosts=async()=>{
+    if(!can("accounts"))return;
     const cleaned={};
     Object.keys(costsForm).forEach(k=>{cleaned[k]=Number(costsForm[k])||0;});
     try{await supabase.from("financial_settings").upsert({id:"main",exchange_rate:exchangeRate,type_costs:cleaned,delivery_rate_omr:deliveryRate});}catch(e){}
@@ -637,6 +651,7 @@ export default function App(){
   };
 
   const saveSupplierPayment=async()=>{
+    if(!can("accounts"))return;
     if(!supPayForm.supplier||!supPayForm.amount||!supPayForm.date){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
     const entry={supplier:supPayForm.supplier,amount:Number(supPayForm.amount),date:supPayForm.date,method:supPayForm.method||"",ref:supPayForm.ref||"",note:supPayForm.note||"",by:currentUser?.name||"Admin",created_at:new Date().toISOString()};
     try{const {data}=await supabase.from("supplier_account_payments").insert(entry).select().single();if(data)entry.id=data.id;}catch(e){}
@@ -647,6 +662,7 @@ export default function App(){
   };
 
   const deleteSupplierPayment=async(pay)=>{
+    if(!can("accounts"))return;
     if(!window.confirm(rtl?"حذف هذه الدفعة؟":"Delete this payment?"))return;
     try{await supabase.from("supplier_account_payments").delete().eq("id",pay.id);}catch(e){}
     setSupPayments(prev=>prev.filter(p=>p.id!==pay.id));
@@ -654,6 +670,7 @@ export default function App(){
   };
 
   const generateFinancialReport=async()=>{
+    if(!can("accounts"))return;
     const bal=Number(reportBalance)||0;
     const now=new Date().toISOString();
     const supplierBreakdown=suppliers.map(s=>{
@@ -682,6 +699,7 @@ export default function App(){
 
   // ── Jacket Errors
   const saveNewJacketError=async()=>{
+    if(!can("errors"))return;
     if(!newErrorForm.jacketOwner||!newErrorForm.errorDescription){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
     const order=orders.find(o=>o.id===newErrorOrderId);
     const orderJackets=Math.max(1,Number(order?.jackets)||1);
@@ -721,6 +739,7 @@ export default function App(){
   };
 
   const updateErrorStatus=async(err,newStatus)=>{
+    if(!can("errors"))return;
     const now=new Date().toISOString();
     const histEntry={status:newStatus,by:currentUser?.name||"Admin",at:now,note:""};
     const newHistory=[...(err.statusHistory||[]),histEntry];
@@ -732,6 +751,7 @@ export default function App(){
   };
 
   const addJacketNote=async()=>{
+    if(!can("errors"))return;
     if(!noteText.trim()){showT(rtl?"اكتب ملاحظة":"Write a note","error");return;}
     const now=new Date().toISOString();
     const note={text:noteText.trim(),by:currentUser?.name||"Admin",at:now};
@@ -744,6 +764,7 @@ export default function App(){
   };
 
   const deleteJacketError=async(err)=>{
+    if(!can("errors"))return;
     if(!window.confirm(rtl?"حذف هذا السجل؟":"Delete this record?"))return;
     try{await supabase.from("jacket_errors").delete().eq("id",err.id);}catch(e){}
     setJacketErrors(prev=>prev.filter(x=>x.id!==err.id));
@@ -756,7 +777,7 @@ export default function App(){
     const u=users.find(x=>x.email===loginEmail&&x.pass===loginPass);
     if(!u){setLoginErr(rtl?"بيانات خاطئة":"Wrong email or password");return;}
     setCurrentUser(u);setLoginErr("");
-    setPage(u.role==="admin"||u.dashboard!==false?"dashboard":"orders");
+    setPage(initialPage(u));
     try{localStorage.setItem("thawb_user_id",u.id);}catch(e){}
   };
 
@@ -817,6 +838,7 @@ export default function App(){
   const saveOrd=async(force)=>{
     if(savingOrder)return;
     if(!newO.phone||!newO.jackets||!newO.total){showT(t.fillRequired,"error");return;}
+    if(!Number.isFinite(Number(newO.paid))||Number(newO.paid)<0){showT(t.invalidAmount,"error");return;}
     if(!force){
       const today=new Date().toISOString().slice(0,10);
       const dup=orders.find(o=>o.phone===newO.phone&&o.total===Number(newO.total)&&o.date===today);
@@ -828,17 +850,16 @@ export default function App(){
     setSettings(s=>({...s,nextOrderNum:newNextNum}));
     saveSettingsToDb({...settings,nextOrderNum:newNextNum});
     const orderData={id,customer:newO.customer,phone:newO.phone,order_type:newO.orderType,date:new Date().toISOString().slice(0,10),jackets:Number(newO.jackets)||0,total:Number(newO.total)||0,paid:Number(newO.paid)||0,status:1,supplier:"",updated:new Date().toISOString().slice(0,10),history:[],extras:Number(newO.extras)||0,delivery_paid:newO.deliveryPaid,delivery_area:newO.deliveryArea||""};
-    const newOrderObj={...orderData,orderType:newO.orderType,deliveryPaid:newO.deliveryPaid,deliveryArea:newO.deliveryArea,payments:Number(newO.paid)>0?[{date:new Date().toISOString().slice(0,10),amount:Number(newO.paid),by:currentUser?.name||"Admin",ref:"",note:"Initial"}]:[]};
+    let result;
     try{
-      const {error:orderError}=await supabase.from("orders").insert(orderData);
-      if(orderError)throw orderError;
-      if(Number(newO.paid)>0){
-        await supabase.from("payments").insert({order_id:id,amount:Number(newO.paid),by:currentUser?.name||"Admin",ref:"",note:"Initial",date:new Date().toISOString().slice(0,10)});
-      }
+      result=await createOrderWithPayment(supabase,orderData,currentUser?.name||"Admin");
     }catch(e){showT((rtl?"تعذر حفظ الطلب: ":"Could not save order: ")+e.message,"error");setSavingOrder(false);return;}
+    const newOrderObj={...result.order,orderType:newO.orderType,deliveryPaid:newO.deliveryPaid,deliveryArea:newO.deliveryArea};
     setOrders(prev=>[newOrderObj,...prev]);
     logActivity(rtl?"طلب جديد":"New order",`${id} — ${newO.customer||newO.phone} — ${fmt(Number(newO.total)||0)}`);
-    setNewO({customer:"",phone:"",jackets:"",total:"",paid:"",orderType:"",extras:"",deliveryPaid:true,deliveryArea:""});setShowNew(false);showT(t.orderCreated);
+    setNewO({customer:"",phone:"",jackets:"",total:"",paid:"",orderType:"",extras:"",deliveryPaid:true,deliveryArea:""});setShowNew(false);
+    if(result.paymentError)showT((rtl?`تم إنشاء الطلب ${id}، لكن تعذّر تأكيد الدفعة. راجع سجل المدفوعات قبل تسجيلها مجددًا: `:`Order ${id} created, but payment could not be confirmed. Check payment history before recording it again: `)+result.paymentError.message,"error");
+    else showT(t.orderCreated);
     setSavingOrder(false);setDupWarning(null);
   };
 
@@ -879,6 +900,7 @@ export default function App(){
     if(validRows.length===0){showT(rtl?"لا توجد صفوف صحيحة":"No valid rows","error");return;}
     setImporting(true);
     const newOrders=[];
+    const importFailures=[];
     let numStart=settings.nextOrderNum;
     for(const row of validRows){
       const num=String(numStart).padStart(3,"0");
@@ -887,19 +909,22 @@ export default function App(){
       const d=new Date().toISOString().slice(0,10);
       const orderData={id,customer:row.customer,phone:row.phone,order_type:row.orderType,date:d,jackets:row.jackets,total:row.total,paid:row.paid,status:1,supplier:"",updated:d,history:[],extras:row.extras||0,delivery_area:row.deliveryArea||""};
       try{
-        await supabase.from("orders").insert(orderData);
-        if(row.paid>0){await supabase.from("payments").insert({order_id:id,amount:row.paid,by:currentUser?.name||"Admin",ref:"",note:"Initial (Import)",date:d});}
-      }catch(e){console.log("Import error",e);}
-      newOrders.push({...orderData,orderType:row.orderType,deliveryArea:row.deliveryArea,payments:row.paid>0?[{date:d,amount:row.paid,by:currentUser?.name||"Admin",ref:"",note:"Initial (Import)"}]:[]});
+        const result=await createOrderWithPayment(supabase,orderData,currentUser?.name||"Admin","Initial (Import)");
+        newOrders.push({...result.order,orderType:row.orderType,deliveryArea:row.deliveryArea});
+        if(result.paymentError)importFailures.push(`${id}: ${result.paymentError.message}`);
+      }catch(e){importFailures.push(`${id}: ${e.message}`);}
+
     }
     setSettings(s=>({...s,nextOrderNum:numStart}));
     saveSettingsToDb({...settings,nextOrderNum:numStart});
     setOrders(prev=>[...newOrders,...prev]);
     setImporting(false);setShowImport(false);setImportRows([]);
-    showT(rtl?`تم استيراد ${newOrders.length} طلب!`:`Imported ${newOrders.length} orders!`);
+    if(importFailures.length)showT((rtl?`تم استيراد ${newOrders.length} طلب. تعذر تأكيد بعض الطلبات أو دفعاتها؛ راجع السجلات: `:`Imported ${newOrders.length} orders. Some orders or payments could not be confirmed; check records: `)+importFailures.join("; "),"error");
+    else showT(rtl?`تم استيراد ${newOrders.length} طلب!`:`Imported ${newOrders.length} orders!`);
   };
 
   const deleteOrder=async(id)=>{
+    if(!can("deleteOrders"))return;
     try{await supabase.from("orders").delete().eq("id",id);}catch(e){}
     setOrders(prev=>prev.filter(o=>o.id!==id));
     logActivity(rtl?"حذف طلب":"Order deleted",id);
@@ -922,6 +947,7 @@ export default function App(){
   const buildOrderId=(numVal,width,prefix,suffix)=>prefix+String(numVal).padStart(width,"0")+suffix;
 
   const renumberOrder=async(oldId,newNumVal)=>{
+    if(!can("renumberOrders"))return;
     if(renumbering)return;
     const info=extractOrderNum(oldId);
     if(!info){showT(rtl?"رقم الطلب لا يطابق صيغة الترقيم الحالية":"Order ID doesn't match current numbering format","error");return;}
@@ -1015,6 +1041,8 @@ export default function App(){
   };
 
   const editPayment=async(oid,payIdx,newAmt,newDate)=>{
+    if(!can("editPayments"))return;
+    if(!Number.isFinite(newAmt)||newAmt<0||!newDate){showT(t.invalidAmount,"error");return;}
     const order=orders.find(o=>o.id===oid);
     if(!order)return;
     const pay=order.payments[payIdx];
@@ -1035,6 +1063,7 @@ export default function App(){
   };
 
   const deletePayment=async(oid,payIdx)=>{
+    if(!can("editPayments"))return;
     if(!window.confirm(rtl?"حذف هذه الدفعة؟":"Delete this payment?"))return;
     const order=orders.find(o=>o.id===oid);
     if(!order)return;
@@ -1064,6 +1093,7 @@ export default function App(){
 
   // ── Supplier actions
   const saveSup=async()=>{
+    if(!can("manageSuppliers"))return;
     if(!supForm.name){showT(rtl?"أدخل اسم المورد":"Enter supplier name","error");return;}
     if(editSup){
       try{await supabase.from("suppliers").update({name:supForm.name,phone:supForm.phone,spec:supForm.spec,unit_price:Number(supForm.unitPrice)||0}).eq("id",editSup.id);}catch(e){}
@@ -1077,6 +1107,7 @@ export default function App(){
   };
 
   const deleteSup=async(id)=>{
+    if(!can("manageSuppliers"))return;
     try{await supabase.from("suppliers").delete().eq("id",id);}catch(e){}
     const sName=suppliers.find(s=>s.id===id)?.name||"";
     setSuppliers(prev=>prev.filter(s=>s.id!==id));
@@ -1096,34 +1127,37 @@ export default function App(){
   };
 
   // ── User actions
-  const saveUser=()=>{
-    if(!userForm.name||!userForm.email||!userForm.pass){showT(rtl?"يرجى تعبئة الحقول":"Fill all fields","error");return;}
-    setUsers(prev=>[...prev,{id:"u-"+Date.now(),...userForm}]);
-    setShowAddUser(false);setUserForm({name:"",email:"",role:"cs",pass:"",perms:{orders:true,payments:true,reports:false,suppliers:false,users:false}});
-    showT(t.userAdded);
-  };
-
   const deleteUser=async(id)=>{
-    try{await supabase.from("users").delete().eq("id",id);}catch(e){}
-    setUsers(prev=>prev.filter(u=>u.id!==id));showT(t.userDeleted);
+    const target=users.find(u=>u.id===id);
+    if(!target||id===currentUser.id||!canManageUser(currentUser,target))return;
+    if(target.role==="admin"&&users.filter(u=>u.role==="admin").length<=1){showT(rtl?"يجب الإبقاء على مدير واحد":"Keep at least one admin","error");return;}
+    if(!window.confirm(t.deleteConfirm))return;
+    try{
+      const {data,error}=await supabase.from("users").delete().eq("id",id).select("id").single();
+      if(error)throw error;
+      if(!data)throw new Error("User was not deleted");
+      setUsers(prev=>prev.filter(u=>u.id!==id));showT(t.userDeleted);
+    }catch(e){showT((rtl?"تعذر حذف المستخدم: ":"Could not delete user: ")+e.message,"error");}
   };
 
   const saveUserEdit=async()=>{
-    if(!userForm.name||!userForm.email){showT(rtl?"يرجى تعبئة الحقول":"Fill all fields","error");return;}
-    if(editUser){
-      const updateData={name:userForm.name,email:userForm.email,role:userForm.role,dashboard:userForm.dashboard,perms:userForm.perms,...(userForm.pass?{pass:userForm.pass}:{})};
-      try{await supabase.from("users").update(updateData).eq("id",editUser.id);}catch(e){}
-      setUsers(prev=>prev.map(u=>u.id!==editUser.id?u:{...u,...userForm,...(userForm.pass?{pass:userForm.pass}:{pass:u.pass})}));
-      showT(rtl?"تم تحديث المستخدم!":"User updated!");
-    } else {
-      if(!userForm.pass){showT(rtl?"أدخل كلمة السر":"Enter password","error");return;}
-      const newId="u-"+Date.now();
-      try{await supabase.from("users").insert({id:newId,name:userForm.name,email:userForm.email,role:userForm.role,pass:userForm.pass,dashboard:userForm.dashboard,perms:userForm.perms});}catch(e){}
-      setUsers(prev=>[...prev,{id:newId,...userForm}]);
-      showT(t.userAdded);
-    }
-    setShowAddUser(false);setEditUser(null);
-    setUserForm({name:"",email:"",role:"cs",pass:"",dashboard:true,perms:{orders:true,payments:true,reports:false,suppliers:false,users:false}});
+    if(savingUserRef.current)return;
+    if(!canSaveUser(currentUser,editUser,userForm)){showT(rtl?"لا يمكنك منح صلاحيات أعلى من صلاحياتك أو تعديل هذا الحساب":"You cannot grant higher permissions or edit this account","error");return;}
+    if(editUser?.role==="admin"&&userForm.role!=="admin"&&users.filter(u=>u.role==="admin").length<=1){showT(rtl?"يجب الإبقاء على مدير واحد":"Keep at least one admin","error");return;}
+    if(!userForm.name.trim()||!userForm.email.trim()){showT(rtl?"يرجى تعبئة الحقول":"Fill all fields","error");return;}
+    if(!editUser&&!userForm.pass){showT(rtl?"أدخل كلمة السر":"Enter password","error");return;}
+    const payload={name:userForm.name.trim(),email:userForm.email.trim(),role:userForm.role,dashboard:userForm.dashboard,perms:userForm.perms,...(userForm.pass?{pass:userForm.pass}:{})};
+    savingUserRef.current=true;setSavingUser(true);
+    try{
+      const saved=await persistUser(supabase,editUser?.id||"u-"+Date.now(),payload,!editUser);
+      setUsers(prev=>editUser?prev.map(u=>u.id===saved.id?saved:u):[...prev,saved]);
+      if(saved.id===currentUser.id){setCurrentUser(saved);setPage(initialPage(saved));}
+      logActivity(rtl?"تحديث المستخدم والصلاحيات":"User and permissions saved",saved.name);
+      showT(editUser?(rtl?"تم تحديث المستخدم!":"User updated!"):t.userAdded);
+      setShowAddUser(false);setEditUser(null);
+      setUserForm({name:"",email:"",role:"cs",pass:"",dashboard:true,perms:{orders:true,payments:true,reports:false,suppliers:false,users:false}});
+    }catch(e){showT((rtl?"تعذر حفظ المستخدم: ":"Could not save user: ")+e.message,"error");}
+    finally{savingUserRef.current=false;setSavingUser(false);}
   };
 
   const saveOrderEdit=async()=>{
@@ -1247,16 +1281,16 @@ export default function App(){
           <div style={{fontSize:18,fontWeight:800,color:"#E05E5C"}}>{t.brand}</div>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{t.brandSub}</div>
         </div>
-        {NI("dashboard","📊",t.dashboard,!(currentUser.role==="admin"||currentUser.dashboard!==false))}
+        {NI("dashboard","📊",t.dashboard,!can("dashboard"))}
         {NI("orders","📋",t.orders,!can("orders"))}
-        {NI("errors","🔧",rtl?"أخطاء الجاكيتات":"Jacket Errors",!can("orders"))}
-        {NI("refunds","↩️",rtl?"التعويضات":"Refunds",!can("orders"))}
+        {NI("errors","🔧",rtl?"أخطاء الجاكيتات":"Jacket Errors",!can("errors"))}
+        {NI("refunds","↩️",rtl?"التعويضات":"Refunds",!can("refunds"))}
         {NI("suppliers","🏭",t.suppliers,!can("suppliers"))}
         {NI("reports","📈",t.reports,!can("reports"))}
-        {NI("users","👥",t.users,currentUser.role!=="admin")}
-        {currentUser.role==="admin"&&NI("expenses","💸",rtl?"المصاريف":"Expenses")}
-        {currentUser.role==="admin"&&NI("accounts","🧮",rtl?"الحسابات":"Accounts")}
-        {currentUser.role==="admin"&&NI("settings","⚙️",rtl?"الإعدادات":"Settings")}
+        {NI("users","👥",t.users,!can("users"))}
+        {can("expenses")&&NI("expenses","💸",rtl?"المصاريف":"Expenses")}
+        {can("accounts")&&NI("accounts","🧮",rtl?"الحسابات":"Accounts")}
+        {can("settings")&&NI("settings","⚙️",rtl?"الإعدادات":"Settings")}
         <div style={{marginTop:"auto",borderTop:"1px solid rgba(255,255,255,0.1)",paddingTop:12,display:"flex",flexDirection:"column",gap:4}}>
           <InstallApp rtl={rtl}/>
           <button onClick={()=>setLang(l=>l==="en"?"ar":"en")} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 16px",border:"none",cursor:"pointer",background:"rgba(255,255,255,0.08)",borderRadius:8,color:"#fff",fontSize:13,fontWeight:700}}>🌐 {lang==="en"?"العربية":"English"}</button>
@@ -1271,13 +1305,13 @@ export default function App(){
         {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:999,background:toast.type==="error"?"#E05E5C":"#2D7A4F",color:"#fff",padding:"12px 20px",borderRadius:10,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>{toast.type==="error"?"⚠️ ":"✓ "}{toast.msg}</div>}
 
         {/* DASHBOARD */}
-        {page==="dashboard"&&<div>
+        {page==="dashboard"&&can("dashboard")&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:28}}>
             <div><h1 style={{fontSize:24,fontWeight:800,margin:0}}>{t.dashboard}</h1><p style={{margin:0,color:tm,fontSize:14}}>{rtl?"مرحباً،":"Welcome,"} {currentUser.name}</p></div>
             {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
           </div>
           <div className="stats-row" style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:24}}>
-            {[{l:t.totalOrders,v:orders.length,i:"📦",c:"#202F4D"},...(currentUser.role==="admin"?[{l:t.totalSales,v:fmt(totSales),i:"💰",c:"#202F4D"},{l:t.collected,v:fmt(totPaid),i:"✅",c:"#2D7A4F"},{l:t.outstanding,v:fmt(totSales-totPaid),i:"⏳",c:"#E05E5C"}]:[])].map(s=>(
+            {[{l:t.totalOrders,v:orders.length,i:"📦",c:"#202F4D"},...(can("financialSummary")?[{l:t.totalSales,v:fmt(totSales),i:"💰",c:"#202F4D"},{l:t.collected,v:fmt(totPaid),i:"✅",c:"#2D7A4F"},{l:t.outstanding,v:fmt(totSales-totPaid),i:"⏳",c:"#E05E5C"}]:[])].map(s=>(
               <div key={s.l} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:"20px 24px",flex:1,minWidth:150}}>
                 <div style={{fontSize:12,color:C.slate,fontWeight:600,marginBottom:8}}>{s.i} {s.l}</div>
                 <div style={{fontSize:26,fontWeight:800,color:s.c}}>{s.v}</div>
@@ -1338,7 +1372,7 @@ export default function App(){
               {can("orders")&&<button onClick={()=>setShowBulkActions(true)} style={{background:"#0EA5E9",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔄 {rtl?"تغيير الحالة":"Change Status"}</button>}
               {orders.some(o=>selectedOrderIds.includes(o.id)&&o.status===10)&&<button className="label-print-action" onClick={()=>openLabelPrint(orders.filter(o=>selectedOrderIds.includes(o.id)&&o.status===10))} style={{background:"#111827",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل المحدد":"Print Selected Labels"}</button>}
               {orders.some(o=>selectedOrderIds.includes(o.id)&&o.status===10)&&<button className="label-save-action" disabled={savingLabels} onClick={()=>saveLabelsPdf(orders.filter(o=>selectedOrderIds.includes(o.id)&&o.status===10))} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {rtl?"حفظ المحدد PDF ‏4×6":"Save Selected 4×6 PDF"}</button>}
-              {currentUser.role==="admin"&&<button onClick={async()=>{if(!window.confirm(rtl?`حذف ${selectedOrderIds.length} طلب؟ لا يمكن التراجع.`:`Delete ${selectedOrderIds.length} orders? Cannot be undone.`))return;try{await supabase.from("orders").delete().in("id",selectedOrderIds);}catch(e){}setOrders(prev=>prev.filter(o=>!selectedOrderIds.includes(o.id)));setSelectedOrderIds([]);showT(rtl?"تم الحذف!":"Deleted!");}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 {rtl?"حذف":"Delete"}</button>}
+              {can("deleteOrders")&&<button onClick={async()=>{if(!window.confirm(rtl?`حذف ${selectedOrderIds.length} طلب؟ لا يمكن التراجع.`:`Delete ${selectedOrderIds.length} orders? Cannot be undone.`))return;try{await supabase.from("orders").delete().in("id",selectedOrderIds);}catch(e){}setOrders(prev=>prev.filter(o=>!selectedOrderIds.includes(o.id)));setSelectedOrderIds([]);showT(rtl?"تم الحذف!":"Deleted!");}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🗑 {rtl?"حذف":"Delete"}</button>}
               <button onClick={()=>setSelectedOrderIds([])} style={{background:"transparent",border:"1px solid #6366F1",color:"#6366F1",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {rtl?"إلغاء التحديد":"Clear"}</button>
             </div>
           </div>}
@@ -1371,7 +1405,7 @@ export default function App(){
                           <button onClick={()=>{setSelected(o);setPage("detail");}} style={{background:C.navyLight,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>{t.view}</button>
                           {can("payments")&&<button onClick={()=>openPaymentModal(o)} style={{background:C.greenLight,color:"#2D7A4F",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>{t.pay}</button>}
                           {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"1px solid "+(o.isUrgent?"#F97316":bc),borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:12,fontWeight:700,color:o.isUrgent?"#F97316":tm}} title={o.isUrgent?(rtl?"إلغاء المستعجل":"Remove urgent"):(rtl?"تعليم مستعجل":"Mark urgent")}>⚡</button>}
-                          {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>🗑</button>}
+                          {can("deleteOrders")&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>🗑</button>}
                         </div>
                       </td>
                     </tr>
@@ -1393,14 +1427,14 @@ export default function App(){
               {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"2px solid "+(o.isUrgent?"#F97316":bc),borderRadius:8,padding:"8px 16px",fontWeight:800,cursor:"pointer",color:o.isUrgent?"#F97316":tm,fontSize:13}}>
                 ⚡ {o.isUrgent?(rtl?"إلغاء المستعجل":"Remove Urgent"):(rtl?"تعليم مستعجل":"Mark Urgent")}
               </button>}
-              {can("orders")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
-              {can("orders")&&<button onClick={()=>openRefundRequest(o.id)} style={{background:"#FFF7ED",color:"#9A3412",border:"1px solid #FDBA74",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>↩️ {rtl?"طلب تعويض":"Refund Request"}</button>}
+              {can("errors")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
+              {can("refunds")&&<button onClick={()=>openRefundRequest(o.id)} style={{background:"#FFF7ED",color:"#9A3412",border:"1px solid #FDBA74",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>↩️ {rtl?"طلب تعويض":"Refund Request"}</button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
               {o.status===10&&<button className="label-print-action" onClick={()=>openLabelPrint(o)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل الأوردر":"Print Order Label"}</button>}
               {o.status===10&&<button className="label-save-action" disabled={savingLabels} onClick={()=>saveLabelsPdf(o)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {savingLabels?(rtl?"جارٍ تجهيز PDF...":"Preparing PDF..."):(rtl?"حفظ ملف PDF ‏4×6":"Save 4×6 PDF")}</button>}
               {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryPaid:o.deliveryPaid!==false,deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
-              {currentUser.role==="admin"&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
-              {currentUser.role==="admin"&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}
+              {can("renumberOrders")&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
+              {can("deleteOrders")&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}
             </div>
             <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20,overflowX:"auto"}}>
               <h3 style={{margin:"0 0 14px",fontSize:13,fontWeight:700}}>{t.productionPipeline}</h3>
@@ -1465,7 +1499,7 @@ export default function App(){
               <h3 style={{margin:"0 0 14px",fontSize:13,fontWeight:700}}>💳 {t.paymentHistory}</h3>
               {o.payments.length===0?<p style={{color:tm,fontSize:13}}>{t.noPayments}</p>:
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                <thead><tr style={{background:C.slateLight}}>{["#",t.date,t.total,t.refNumber,t.recordedBy,t.notes,...(currentUser.role==="admin"?[rtl?"إجراءات":"Actions"]:[])].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:C.slate}}>{h}</th>)}</tr></thead>
+                <thead><tr style={{background:C.slateLight}}>{["#",t.date,t.total,t.refNumber,t.recordedBy,t.notes,...(can("editPayments")?[rtl?"إجراءات":"Actions"]:[])].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:C.slate}}>{h}</th>)}</tr></thead>
                 <tbody>
                   {o.payments.map((p,i)=>(
                     <tr key={i} style={{borderTop:"1px solid "+bc}}>
@@ -1479,7 +1513,7 @@ export default function App(){
                       <td style={{padding:"8px 12px",color:tm,fontFamily:"monospace",fontSize:12}}>{p.ref||"--"}</td>
                       <td style={{padding:"8px 12px",color:tm}}>{p.by}</td>
                       <td style={{padding:"8px 12px",color:tm}}>{p.note}</td>
-                      {currentUser.role==="admin"&&<td style={{padding:"8px 12px"}}>
+                      {can("editPayments")&&<td style={{padding:"8px 12px"}}>
                         {editPayIdx===i?
                           <div style={{display:"flex",gap:4}}>
                             <button onClick={()=>editPayment(o.id,i,Number(editPayForm.amount),editPayForm.date)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>✓</button>
@@ -1495,7 +1529,7 @@ export default function App(){
                   ))}
                   <tr style={{borderTop:"2px solid "+bc,background:C.slateLight}}>
                     <td colSpan={2} style={{padding:"8px 12px",fontWeight:700}}>{t.totalPaid}</td>
-                    <td colSpan={currentUser.role==="admin"?5:4} style={{padding:"8px 12px",fontWeight:800,color:"#2D7A4F"}}>{fmt(o.paid)}</td>
+                    <td colSpan={can("editPayments")?5:4} style={{padding:"8px 12px",fontWeight:800,color:"#2D7A4F"}}>{fmt(o.paid)}</td>
                   </tr>
                 </tbody>
               </table>}
@@ -1517,12 +1551,12 @@ export default function App(){
         })()}
 
         {/* SUPPLIERS */}
-        {page==="suppliers"&&<div>
+        {page==="suppliers"&&can("suppliers")&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.suppliers}</h1>
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>setShowAssign(true)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {t.assignOrders}</button>
-              {currentUser.role==="admin"&&<button onClick={()=>{setEditSup(null);setSupForm({name:"",phone:"",spec:""});setShowAddSup(true);}} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{t.addSupplier}</button>}
+              {can("manageSuppliers")&&<button onClick={()=>{setEditSup(null);setSupForm({name:"",phone:"",spec:""});setShowAddSup(true);}} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{t.addSupplier}</button>}
             </div>
           </div>
           {suppliers.length===0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}>{t.noSuppliersYet}</div>}
@@ -1538,7 +1572,7 @@ export default function App(){
                     <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:800}}>🏭 {sup.name}</h3>
                     <div style={{fontSize:12,color:tm}}>{sup.phone} {sup.spec&&"· "+sup.spec}</div>
                   </div>
-                  {currentUser.role==="admin"&&<div style={{display:"flex",gap:6}}>
+                  {can("manageSuppliers")&&<div style={{display:"flex",gap:6}}>
                     <button onClick={()=>{setEditSup(sup);setSupForm({name:sup.name,phone:sup.phone,spec:sup.spec,unitPrice:sup.unitPrice||""});setShowAddSup(true);}} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:tp}}>{t.editSupplier}</button>
                     <button onClick={()=>deleteSup(sup.id)} style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:"#E05E5C"}}>🗑</button>
                   </div>}
@@ -1570,10 +1604,10 @@ export default function App(){
         </div>}
 
         {/* REFUNDS */}
-        {page==="refunds"&&can("orders")&&<RefundsPage orders={orders} refunds={refunds} setRefunds={setRefunds} currentUser={currentUser} rtl={rtl} onNewRequest={openRefundRequest}/>}
+        {page==="refunds"&&can("refunds")&&<RefundsPage orders={orders} refunds={refunds} setRefunds={setRefunds} currentUser={currentUser} rtl={rtl} onNewRequest={openRefundRequest}/>}
 
         {/* REPORTS */}
-        {page==="reports"&&<div>
+        {page==="reports"&&can("reports")&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.reportsTitle}</h1>
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
@@ -1659,10 +1693,10 @@ export default function App(){
         </div>}
 
         {/* USERS */}
-        {page==="users"&&currentUser.role==="admin"&&<div>
+        {page==="users"&&can("users")&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.userManagement}</h1>
-            <button onClick={()=>setShowAddUser(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{t.addUser}</button>
+            <button onClick={()=>{setEditUser(null);setUserForm({name:"",email:"",role:"cs",pass:"",dashboard:can("dashboard"),perms:{orders:can("orders"),payments:can("payments"),reports:false,suppliers:false,users:false}});setShowAddUser(true);}} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{t.addUser}</button>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             {users.map(u=>(
@@ -1678,20 +1712,11 @@ export default function App(){
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"flex-end"}}>
                     <div style={{display:"flex",gap:6}}>
-                      <button onClick={()=>{setEditUser(u);setUserForm({name:u.name,email:u.email,role:u.role,pass:"",dashboard:u.dashboard!==false,perms:{...u.perms}});setShowAddUser(true);}} style={{background:C.slateLight,color:tp,border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {rtl?"تعديل":"Edit"}</button>
-                      {u.id!==currentUser.id&&<button onClick={()=>deleteUser(u.id)} style={{background:"#FEF2F2",color:"#E05E5C",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>🗑 {rtl?"حذف":"Delete"}</button>}
+                      <button disabled={!canManageUser(currentUser,u)} onClick={()=>{setEditUser(u);setUserForm({name:u.name,email:u.email,role:u.role,pass:"",dashboard:u.dashboard!==false,perms:{...u.perms}});setShowAddUser(true);}} style={{background:C.slateLight,color:tp,border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>✏️ {rtl?"تعديل":"Edit"}</button>
+                      {u.id!==currentUser.id&&canManageUser(currentUser,u)&&<button onClick={()=>deleteUser(u.id)} style={{background:"#FEF2F2",color:"#E05E5C",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:600}}>🗑 {rtl?"حذف":"Delete"}</button>}
                     </div>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
-                      <span style={{background:u.dashboard!==false?"#E6F4EC":"#F1F5F9",color:u.dashboard!==false?"#2D7A4F":"#94A3B8",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:600,cursor:"pointer"}}
-                        onClick={async()=>{const newVal=!(u.dashboard!==false);try{await supabase.from("users").update({dashboard:newVal}).eq("id",u.id);}catch(e){}setUsers(prev=>prev.map(x=>x.id!==u.id?x:{...x,dashboard:newVal}));}}>
-                        {u.dashboard!==false?"✓":"✗"} {rtl?"الداشبورد":"Dashboard"}
-                      </span>
-                      {[["orders",t.permOrders],["payments",t.permPayments],["reports",t.permReports],["suppliers",t.permSuppliers],["users",t.permUsers]].map(([p,l])=>(
-                        <span key={p} style={{background:u.perms[p]?"#E6F4EC":"#F1F5F9",color:u.perms[p]?"#2D7A4F":"#94A3B8",padding:"2px 8px",borderRadius:8,fontSize:10,fontWeight:600,cursor:"pointer"}}
-                          onClick={async()=>{const newPerms={...u.perms,[p]:!u.perms[p]};try{await supabase.from("users").update({perms:newPerms}).eq("id",u.id);}catch(e){}setUsers(prev=>prev.map(x=>x.id!==u.id?x:{...x,perms:newPerms}));}}>
-                          {u.perms[p]?"✓":"✗"} {l}
-                        </span>
-                      ))}
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end",maxWidth:600}}>
+                      {u.role==="admin"?<span style={{fontSize:12,color:tm}}>{rtl?"جميع الصلاحيات":"All permissions"}</span>:PERMISSIONS.filter(p=>hasPermission(u,p.key)).map(p=><span key={p.key} style={{background:C.greenLight,color:C.green,padding:"3px 8px",borderRadius:8,fontSize:11}}>{rtl?p.ar:p.en}</span>)}
                     </div>
                   </div>
                 </div>
@@ -1700,7 +1725,7 @@ export default function App(){
           </div>
         </div>}
         {/* JACKET ERRORS — AUTO FROM STATUS 13 */}
-        {page==="errors"&&can("orders")&&(()=>{
+        {page==="errors"&&can("errors")&&(()=>{
           const subLabel=(s)=>s>0?(rtl?ERROR_SUB_STATUSES_AR[s-1]:ERROR_SUB_STATUSES_EN[s-1]):(rtl?"لم تُحدَّد بعد":"Not set yet");
           const subColor=(s)=>s>0?ERROR_SUB_COLORS[s-1]:{color:"#94A3B8",bg:"#F1F5F9"};
           const errorOrders=orders.filter(o=>isErrorOrder(o,jacketErrors));
@@ -1837,7 +1862,7 @@ export default function App(){
         })()}
 
                 {/* EXPENSES */}
-        {page==="expenses"&&currentUser.role==="admin"&&(()=>{
+        {page==="expenses"&&can("expenses")&&(()=>{
           const expCats=rtl?EXPENSE_CATS_AR:EXPENSE_CATS_EN;
           const filtExps=expenses.filter(e=>{
             if(expCatFilter&&e.category!==expCatFilter)return false;
@@ -1941,7 +1966,7 @@ export default function App(){
 
 
         {/* ACCOUNTS (Financial) */}
-        {page==="accounts"&&currentUser.role==="admin"&&(()=>{
+        {page==="accounts"&&can("accounts")&&(()=>{
           const RATE=exchangeRate;
           const netPosOMR=(bal)=>bal+customerOutstandingOMR-(expectedRemainingAED/RATE)-delivery.remaining;
           return <div>
@@ -2356,7 +2381,7 @@ export default function App(){
 
 
         {/* SETTINGS */}
-        {page==="settings"&&currentUser.role==="admin"&&<div>
+        {page==="settings"&&can("settings")&&<div>
           <h1 style={{fontSize:22,fontWeight:800,marginBottom:24}}>⚙️ {rtl?"الإعدادات":"System Settings"}</h1>
           <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
 
@@ -2738,7 +2763,7 @@ export default function App(){
         </div>
       </div>}
 
-      {showAddUser&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowAddUser(false),setEditUser(null))}>
+      {showAddUser&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!savingUser&&(setShowAddUser(false),setEditUser(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:480,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{editUser?(rtl?"تعديل المستخدم":"Edit User"):t.addUser}</h2>
           <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
@@ -2747,28 +2772,16 @@ export default function App(){
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.userPass} {editUser&&<span style={{color:tm,fontWeight:400}}>{rtl?"(اتركه فارغاً للإبقاء)":"(leave blank to keep)"}</span>}</label><input type="password" value={userForm.pass} onChange={e=>setUserForm(p=>({...p,pass:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.userRole}</label>
               <select value={userForm.role} onChange={e=>setUserForm(p=>({...p,role:e.target.value}))} style={IS}>
-                <option value="admin">{t.adminRole}</option>
+                <option value="admin" disabled={currentUser.role!=="admin"}>{t.adminRole}</option>
                 <option value="cs">{t.csRole}</option>
                 <option value="viewer">{t.viewerRole}</option>
               </select>
             </div>
           </div>
-          <div style={{marginBottom:16}}>
-            <div style={{fontSize:12,fontWeight:600,color:tm,marginBottom:8}}>{rtl?"الصلاحيات":"Permissions"}</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <label style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:20,border:"1px solid "+(userForm.dashboard?C.navyLight:bc),background:userForm.dashboard?C.navyLight:"transparent",color:userForm.dashboard?"#fff":tm,cursor:"pointer",fontSize:12,fontWeight:userForm.dashboard?700:500}}>
-                <input type="checkbox" checked={!!userForm.dashboard} onChange={e=>setUserForm(p=>({...p,dashboard:e.target.checked}))} style={{display:"none"}}/>{userForm.dashboard?"✓ ":""}{rtl?"الداشبورد":"Dashboard"}
-              </label>
-              {[["orders",t.permOrders],["payments",t.permPayments],["reports",t.permReports],["suppliers",t.permSuppliers],["users",t.permUsers]].map(([p,l])=>(
-                <label key={p} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:20,border:"1px solid "+(userForm.perms[p]?C.navyLight:bc),background:userForm.perms[p]?C.navyLight:"transparent",color:userForm.perms[p]?"#fff":tm,cursor:"pointer",fontSize:12,fontWeight:userForm.perms[p]?700:500}}>
-                  <input type="checkbox" checked={userForm.perms[p]} onChange={e=>setUserForm(prev=>({...prev,perms:{...prev.perms,[p]:e.target.checked}}))} style={{display:"none"}}/>{userForm.perms[p]?"✓ ":""}{l}
-                </label>
-              ))}
-            </div>
-          </div>
+          <PermissionEditor value={userForm} onChange={setUserForm} actor={currentUser} rtl={rtl} border={bc} text={tp} muted={tm}/>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-            <button onClick={()=>{setShowAddUser(false);setEditUser(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={saveUserEdit} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{editUser?(rtl?"حفظ التعديلات":"Save Changes"):t.saveUser}</button>
+            <button disabled={savingUser} onClick={()=>{setShowAddUser(false);setEditUser(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
+            <button disabled={savingUser} onClick={saveUserEdit} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{savingUser?(rtl?"جارٍ الحفظ...":"Saving..."):(editUser?(rtl?"حفظ التعديلات":"Save Changes"):t.saveUser)}</button>
           </div>
         </div>
       </div>}
