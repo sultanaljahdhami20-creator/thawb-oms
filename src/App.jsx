@@ -6,6 +6,8 @@ import { DEFAULT_DELIVERY_RATE, deliverySummary, expectedNetProfit } from "./del
 import RefundsPage from "./RefundsPage";
 import { isErrorOrder, dismissOrderError } from "./errorOrders";
 import InstallApp from "./InstallApp";
+import RecordEditor from "./RecordEditor";
+import {updateRecord,saveJacketCorrection} from "./recordEdits";
 import PermissionEditor from "./PermissionEditor";
 import { PERMISSIONS, hasPermission, canManageUser, canSaveUser, initialPage, persistUser } from "./permissions";
 import { createOrderWithPayment } from "./orderCreation";
@@ -167,6 +169,7 @@ export default function App(){
   const [pinAction,setPinAction]=useState(null);
 
   // ── Edit Order
+  const [recordEditor,setRecordEditor]=useState(null);
   const [showEditOrder,setShowEditOrder]=useState(false);
   const [editOrderTarget,setEditOrderTarget]=useState(null);
   const [editOrderForm,setEditOrderForm]=useState({customer:"",phone:"",jackets:"",total:"",extras:"",deliveryPaid:true,deliveryArea:"",orderType:""});
@@ -466,6 +469,61 @@ export default function App(){
   const showT=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast(null),3000);};
 
   const can=(perm)=>hasPermission(currentUser,perm);
+
+  const adminEdit=(title,fields,values,save)=>{
+    if(currentUser?.role!=="admin")return;
+    setRecordEditor({title,fields,values,onSave:async patch=>{
+      if(currentUser?.role!=="admin")throw new Error("Admin access required");
+      await save(patch);
+      logActivity(rtl?"تصحيح بيانات":"Record corrected",`${title} · ${values.id||""}`);
+      showT(rtl?"تم حفظ التعديلات":"Changes saved");
+    }});
+  };
+  const field=(key,ar,en,extra={})=>({key,ar,en,...extra});
+  const editButton=(action)=>currentUser?.role==="admin"&&<button type="button" onClick={action} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:12,fontWeight:700}}>✏️ {rtl?"تعديل":"Edit"}</button>;
+  const openErrorEdit=error=>{
+    adminEdit(rtl?"تعديل بلاغ الجاكيت":"Edit jacket report",[
+      field("order_id","الطلب المرتبط","Linked order",{required:true,options:orders.map(o=>({value:o.id,label:`${o.id} · ${o.customer||o.phone}`}))}),
+      field("jacket_owner","صاحب الجاكيت","Jacket owner",{required:true}),field("jacket_type","نوع الجاكيت","Jacket type"),field("jacket_size","المقاس","Size"),
+      field("affected_jackets","عدد الجاكيتات المتأثرة","Affected jackets",{type:"number",min:1,step:1,required:true}),
+      field("error_description","وصف الخطأ","Error description",{type:"textarea",required:true}),field("error_image_url","رابط صورة الخطأ","Error image URL",{type:"url"}),
+      field("status","حالة البلاغ","Report status",{options:ERROR_STATUSES_EN.map((label,i)=>({value:i+1,label:rtl?ERROR_STATUSES_AR[i]:label}))})
+    ],{...error,affected_jackets:error.affectedJackets??error.affected_jackets??1},async patch=>{
+      const order=orders.find(o=>o.id===patch.order_id);
+      if(!order)throw new Error(rtl?"اختر الطلب":"Select an order");
+      const saved=await saveJacketCorrection(supabase,error,{...patch,customer_name:order.customer||"",customer_phone:order.phone||""},order.jackets,currentUser.name);
+      setJacketErrors(prev=>prev.map(e=>e.id===error.id?saved:e));
+    });
+  };
+  const openNoteEdit=(record,index,jacket=false)=>{
+    const notes=jacket?record.notes:record.errorNotes;
+    adminEdit(rtl?"تعديل الملاحظة":"Edit note",[field("text","الملاحظة","Note",{type:"textarea",required:true})],notes[index],async patch=>{
+      if(!patch.text.trim())throw new Error(rtl?"اكتب الملاحظة":"Enter a note");
+      const next=notes.map((n,i)=>i===index?{...n,text:patch.text,edited_by:currentUser.name,edited_at:new Date().toISOString()}:n);
+      await updateRecord(supabase,jacket?"jacket_errors":"orders",record.id,jacket?{notes:JSON.stringify(next)}:{error_notes:next});
+      if(jacket)setJacketErrors(prev=>prev.map(e=>e.id===record.id?{...e,notes:next}:e));
+      else {
+        setOrders(prev=>prev.map(o=>o.id===record.id?{...o,errorNotes:next}:o));
+        if(selectedError?.id===record.id)setSelectedError(o=>({...o,errorNotes:next}));
+      }
+    });
+  };
+  const openExpenseEdit=expense=>adminEdit(rtl?"تعديل المصروف":"Edit expense",[
+    field("date","التاريخ","Date",{type:"date",required:true}),field("category","الفئة","Category",{required:true}),field("amount","المبلغ (ر.ع)","Amount (OMR)",{type:"number",min:0.001,step:0.001,required:true}),field("note","الملاحظة","Note",{type:"textarea"})
+  ],expense,async patch=>{const saved=await updateRecord(supabase,"expenses",expense.id,patch);setExpenses(prev=>prev.map(e=>e.id===expense.id?saved:e));});
+  const openSupplierPaymentEdit=payment=>adminEdit(rtl?"تعديل دفعة المورد":"Edit supplier payment",[
+    field("supplier","المورد","Supplier",{required:true,options:[...new Set([payment.supplier,...suppliers.map(s=>s.name)])].map(name=>({value:name,label:name}))}),
+    field("date","التاريخ","Date",{type:"date",required:true}),field("amount","المبلغ (درهم)","Amount (AED)",{type:"number",min:0.01,step:0.01,required:true}),field("method","طريقة الدفع","Payment method"),field("ref","المرجع","Reference"),field("note","الملاحظة","Note",{type:"textarea"})
+  ],payment,async patch=>{const saved=await updateRecord(supabase,"supplier_account_payments",payment.id,patch);setSupPayments(prev=>prev.map(p=>p.id===payment.id?saved:p));});
+  const openReportEdit=report=>adminEdit(rtl?"تصحيح الرصيد في التقرير":"Correct report balance",[
+    field("available_balance_omr","الرصيد المتاح (ر.ع)","Available balance (OMR)",{type:"number",step:0.001,required:true})
+  ],report,async patch=>{
+    const delta=patch.available_balance_omr-Number(report.available_balance_omr||0);
+    const net=Number(report.net_position_omr||0)+delta;
+    const saved=await updateRecord(supabase,"financial_reports",report.id,{...patch,net_position_omr:net,net_position_aed:net*Number(report.exchange_rate)});
+    setSavedReports(prev=>prev.map(r=>r.id===report.id?saved:r));
+    if(viewingReport?.id===report.id)setViewingReport(saved);
+  });
 
   // ── Financial helpers
   const toAED=(omr)=>Number(omr||0)*exchangeRate;
@@ -1050,13 +1108,13 @@ export default function App(){
     const d=new Date().toISOString().slice(0,10);
     try{
       if(!pay.id)throw new Error(rtl?"معرّف الدفعة غير موجود":"Payment ID is missing");
-      const {data,error}=await supabase.from("payments").update({amount:newAmt,date:newDate}).eq("id",pay.id).select().single();
+      const {data,error}=await supabase.from("payments").update({amount:newAmt,date:newDate,ref:editPayForm.ref,note:editPayForm.note}).eq("id",pay.id).select().single();
       if(error)throw error;
       const paidResult=await supabase.from("orders").select("paid").eq("id",oid).single();
       if(paidResult.error)throw paidResult.error;
       const paid=Number(paidResult.data.paid);
-      setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid,updated:d,payments:o.payments.map((p,i)=>i!==payIdx?p:{...p,amount:Number(data.amount),date:data.date})}));
-      if(selected?.id===oid)setSelected(s=>({...s,paid,updated:d,payments:s.payments.map((p,i)=>i!==payIdx?p:{...p,amount:Number(data.amount),date:data.date})}));
+      setOrders(prev=>prev.map(o=>o.id!==oid?o:{...o,paid,updated:d,payments:o.payments.map((p,i)=>i!==payIdx?p:{...p,amount:Number(data.amount),date:data.date,ref:data.ref||"",note:data.note||""})}));
+      if(selected?.id===oid)setSelected(s=>({...s,paid,updated:d,payments:s.payments.map((p,i)=>i!==payIdx?p:{...p,amount:Number(data.amount),date:data.date,ref:data.ref||"",note:data.note||""})}));
       logActivity(rtl?"تعديل دفعة":"Payment edited",`${oid} — ${fmt(oldAmt)} → ${fmt(newAmt)}`);
       setEditPayIdx(null);showT(rtl?"تم تعديل الدفعة":"Payment updated");
     }catch(e){showT((rtl?"تعذّر تعديل الدفعة: ":"Could not update payment: ")+(e?.message||String(e)),"error");}
@@ -1161,10 +1219,13 @@ export default function App(){
   };
 
   const saveOrderEdit=async()=>{
+    if(!can("orders"))return;
     const o=editOrderTarget;
-    if(!editOrderForm.jackets||!editOrderForm.total){showT(rtl?"يرجى تعبئة الحقول":"Fill required fields","error");return;}
+    if(!editOrderForm.date||!editOrderForm.phone.trim()||!Number.isInteger(Number(editOrderForm.jackets))||Number(editOrderForm.jackets)<1||!Number.isFinite(Number(editOrderForm.total))||Number(editOrderForm.total)<0||editOrderForm.total===""||!Number.isInteger(Number(editOrderForm.extras))||Number(editOrderForm.extras)<0){showT(rtl?"يرجى تعبئة الحقول":"Fill required fields","error");return;}
+    if(jacketErrors.some(e=>e.order_id===o.id&&Number(e.affectedJackets??e.affected_jackets??1)>Number(editOrderForm.jackets))){showT(rtl?"صحح عدد الجاكيتات المتأثرة في البلاغ أولاً":"Correct the affected jacket count in the report first","error");return;}
     const changes=[];
-    if(editOrderForm.customer!==o.customer&&editOrderForm.customer) changes.push((rtl?"الاسم: ":"Name: ")+o.customer+" → "+editOrderForm.customer);
+    if(editOrderForm.date!==o.date)changes.push(`${o.date} → ${editOrderForm.date}`);
+    if(editOrderForm.customer!==o.customer) changes.push((rtl?"الاسم: ":"Name: ")+o.customer+" → "+editOrderForm.customer);
     if(editOrderForm.phone!==o.phone&&editOrderForm.phone) changes.push((rtl?"الهاتف: ":"Phone: ")+o.phone+" → "+editOrderForm.phone);
     if(Number(editOrderForm.jackets)!==o.jackets) changes.push((rtl?"الجاكيتات: ":"Jackets: ")+o.jackets+" → "+editOrderForm.jackets);
     if(Number(editOrderForm.total)!==o.total) changes.push((rtl?"المبلغ: ":"Amount: ")+fmt(o.total)+" → "+fmt(Number(editOrderForm.total)));
@@ -1174,10 +1235,11 @@ export default function App(){
     if(editOrderForm.orderType!==(o.orderType||"")) changes.push((rtl?"النوع: ":"Type: ")+(o.orderType||"--")+" → "+(editOrderForm.orderType||"--"));
     const d=new Date().toISOString().slice(0,10);
     const historyEntry=changes.length>0?{date:d,type:"edit",by:currentUser?.name||"Admin",changes:changes.join(" | ")}:null;
-    try{const {error}=await supabase.from("orders").update({customer:editOrderForm.customer||o.customer,phone:editOrderForm.phone||o.phone,jackets:Number(editOrderForm.jackets),total:Number(editOrderForm.total),extras:Number(editOrderForm.extras)||0,delivery_paid:editOrderForm.deliveryPaid,history:[...(o.history||[]),...(historyEntry?[historyEntry]:[])],delivery_area:editOrderForm.deliveryArea,order_type:editOrderForm.orderType,updated:d}).eq("id",o.id);if(error)throw error;}catch(e){showT((rtl?"تعذر حفظ التعديل: ":"Could not save changes: ")+e.message,"error");return;}
+    try{const {error}=await supabase.from("orders").update({date:editOrderForm.date,customer:editOrderForm.customer,phone:editOrderForm.phone||o.phone,jackets:Number(editOrderForm.jackets),total:Number(editOrderForm.total),extras:Number(editOrderForm.extras)||0,delivery_paid:editOrderForm.deliveryPaid,history:[...(o.history||[]),...(historyEntry?[historyEntry]:[])],delivery_area:editOrderForm.deliveryArea,order_type:editOrderForm.orderType,updated:d}).eq("id",o.id);if(error)throw error;}catch(e){showT((rtl?"تعذر حفظ التعديل: ":"Could not save changes: ")+e.message,"error");return;}
     setOrders(prev=>prev.map(x=>x.id!==o.id?x:{
       ...x,
-      customer:editOrderForm.customer||x.customer,
+      date:editOrderForm.date,
+      customer:editOrderForm.customer,
       phone:editOrderForm.phone||x.phone,
       jackets:Number(editOrderForm.jackets),
       total:Number(editOrderForm.total),
@@ -1432,7 +1494,7 @@ export default function App(){
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
               {o.status===10&&<button className="label-print-action" onClick={()=>openLabelPrint(o)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل الأوردر":"Print Order Label"}</button>}
               {o.status===10&&<button className="label-save-action" disabled={savingLabels} onClick={()=>saveLabelsPdf(o)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:savingLabels?"wait":"pointer",opacity:savingLabels?0.65:1}}>⬇️ {savingLabels?(rtl?"جارٍ تجهيز PDF...":"Preparing PDF..."):(rtl?"حفظ ملف PDF ‏4×6":"Save 4×6 PDF")}</button>}
-              {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryPaid:o.deliveryPaid!==false,deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
+              {can("orders")&&<button onClick={()=>{setEditOrderTarget(o);setEditOrderForm({date:o.date,customer:o.customer||"",phone:o.phone,jackets:String(o.jackets),total:String(o.total),extras:String(o.extras||0),deliveryPaid:o.deliveryPaid!==false,deliveryArea:o.deliveryArea||"",orderType:o.orderType||""});setShowEditOrder(true);}} style={{background:C.slateLight,color:tp,border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>✏️ {rtl?"تعديل":"Edit"}</button>}
               {can("renumberOrders")&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
               {can("deleteOrders")&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}
             </div>
@@ -1510,9 +1572,9 @@ export default function App(){
                       <td style={{padding:"8px 12px",fontWeight:700,color:"#2D7A4F"}}>
                         {editPayIdx===i?<input type="number" value={editPayForm.amount} onChange={e=>setEditPayForm(f=>({...f,amount:e.target.value}))} style={{...IS,padding:"4px 8px",fontSize:12,width:90}}/>:fmt(p.amount)}
                       </td>
-                      <td style={{padding:"8px 12px",color:tm,fontFamily:"monospace",fontSize:12}}>{p.ref||"--"}</td>
+                      <td style={{padding:"8px 12px",color:tm,fontFamily:"monospace",fontSize:12}}>{editPayIdx===i?<input aria-label={t.refNumber} value={editPayForm.ref} onChange={e=>setEditPayForm(f=>({...f,ref:e.target.value}))} style={IS}/>:p.ref||"--"}</td>
                       <td style={{padding:"8px 12px",color:tm}}>{p.by}</td>
-                      <td style={{padding:"8px 12px",color:tm}}>{p.note}</td>
+                      <td style={{padding:"8px 12px",color:tm}}>{editPayIdx===i?<input aria-label={t.notes} value={editPayForm.note} onChange={e=>setEditPayForm(f=>({...f,note:e.target.value}))} style={IS}/>:p.note}</td>
                       {can("editPayments")&&<td style={{padding:"8px 12px"}}>
                         {editPayIdx===i?
                           <div style={{display:"flex",gap:4}}>
@@ -1520,7 +1582,7 @@ export default function App(){
                             <button onClick={()=>setEditPayIdx(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11,color:tm}}>✕</button>
                           </div>:
                           <div style={{display:"flex",gap:4}}>
-                            <button onClick={()=>{setEditPayIdx(i);setEditPayForm({amount:String(p.amount),date:p.date});}} style={{background:C.slateLight,border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:12}} title={rtl?"تعديل":"Edit"}>✏️</button>
+                            <button onClick={()=>{setEditPayIdx(i);setEditPayForm({amount:String(p.amount),date:p.date,ref:p.ref||"",note:p.note||""});}} style={{background:C.slateLight,border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:12}} title={rtl?"تعديل":"Edit"}>✏️</button>
                             <button onClick={()=>deletePayment(o.id,i)} style={{background:"#FEF2F2",border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:12,color:"#E05E5C"}} title={rtl?"حذف":"Delete"}>🗑</button>
                           </div>
                         }
@@ -1765,6 +1827,7 @@ export default function App(){
                     {o.errorSubStatus>0?<span style={{background:subColor(o.errorSubStatus).bg,color:subColor(o.errorSubStatus).color,borderRadius:20,padding:"5px 14px",fontWeight:700,fontSize:13}}>{subLabel(o.errorSubStatus)}</span>:<span style={{color:tm,fontSize:13}}>{rtl?"لم تُحدَّد بعد":"Not set yet"}</span>}
                   </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {currentUser?.role==="admin"&&<button onClick={()=>updateOrderSubStatus(o,0)} style={{border:"1px solid "+bc,borderRadius:20,padding:"5px 12px",cursor:"pointer",background:bgC,color:tm}}>{rtl?"إلغاء تحديد الحالة الفرعية":"Clear sub-status"}</button>}
                     {ERROR_SUB_STATUSES_AR.map((_,i)=>{
                       const idx=i+1,sc2=ERROR_SUB_COLORS[i];
                       return <button key={idx} onClick={()=>updateOrderSubStatus(o,idx)} style={{background:o.errorSubStatus===idx?sc2.color:sc2.bg,color:o.errorSubStatus===idx?"#fff":sc2.color,border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]}</button>;
@@ -1781,7 +1844,7 @@ export default function App(){
                   {(o.errorNotes||[]).length===0?<p style={{color:tm,fontSize:13,margin:0}}>{rtl?"لا توجد ملاحظات بعد":"No notes yet"}</p>:
                   [...(o.errorNotes||[])].reverse().map((n,i)=>(
                     <div key={i} style={{background:C.slateLight,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
-                      <p style={{margin:"0 0 6px",fontSize:13,lineHeight:1.5}}>{n.text}</p>
+                      <p style={{margin:"0 0 6px",fontSize:13,lineHeight:1.5}}>{n.text}</p>{editButton(()=>openNoteEdit(o,o.errorNotes.length-1-i))}
                       <div style={{fontSize:11,color:tm}}>{n.by} · {new Date(n.at).toLocaleString(rtl?"ar-OM":"en-GB")}</div>
                     </div>
                   ))}
@@ -1798,7 +1861,9 @@ export default function App(){
                   {jErrs.map((e,i)=>{
                     const sc2=ERROR_STATUS_COLORS[e.status-1]||ERROR_STATUS_COLORS[0];
                     return <div key={i} style={{background:C.slateLight,borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-                      <div style={{fontWeight:700,marginBottom:4}}>{e.jacket_owner}</div>
+                      <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:4}}><b>{e.jacket_owner}</b>{editButton(()=>openErrorEdit(e))}</div>
+                      <p style={{fontSize:13}}>{e.error_description}</p>
+                      {(e.notes||[]).map((note,idx)=>note.type!=="affected_jackets"&&<div key={idx} style={{marginBottom:8,fontSize:12}}>{note.text} {editButton(()=>openNoteEdit(e,idx,true))}</div>)}
                       <div style={{fontSize:12,color:tm,marginBottom:6}}>{e.jacket_type||"--"} · {e.jacket_size||"--"}</div>
                       <div style={{fontSize:12,fontWeight:800,color:"#DC2626",marginBottom:8}}>{rtl?"الجاكيتات المتضررة":"Affected jackets"}: {Number(e.affectedJackets||e.affected_jackets)||1} {rtl?"من":"of"} {o.jackets}</div>
                       <span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rtl?ERROR_STATUSES_AR[e.status-1]:ERROR_STATUSES_EN[e.status-1]}</span>
@@ -1927,7 +1992,7 @@ export default function App(){
                       <td style={{padding:"12px 14px",fontWeight:800,color:"#E05E5C"}}>{fmt(e.amount)}</td>
                       <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.note||"--"}</td>
                       <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{e.by}</td>
-                      <td style={{padding:"12px 14px"}}><button onClick={()=>deleteExpense(e)} style={{background:"transparent",border:"none",cursor:"pointer",color:"#E05E5C",fontSize:16}}>🗑️</button></td>
+                      <td style={{padding:"12px 14px"}}>{editButton(()=>openExpenseEdit(e))}<button onClick={()=>deleteExpense(e)} style={{background:"transparent",border:"none",cursor:"pointer",color:"#E05E5C",fontSize:16}}>🗑️</button></td>
                     </tr>;
                   })}
                 </tbody>
@@ -2164,7 +2229,7 @@ export default function App(){
                           <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{p.method||"--"}</td>
                           <td style={{padding:"12px 14px",color:tm,fontSize:12,fontFamily:"monospace"}}>{p.ref||"--"}</td>
                           <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{p.by}</td>
-                          <td style={{padding:"12px 14px"}}><button onClick={()=>deleteSupplierPayment(p)} style={{background:"transparent",border:"none",cursor:"pointer",color:"#E05E5C",fontSize:15}}>🗑</button></td>
+                          <td style={{padding:"12px 14px"}}>{editButton(()=>openSupplierPaymentEdit(p))}<button onClick={()=>deleteSupplierPayment(p)} style={{background:"transparent",border:"none",cursor:"pointer",color:"#E05E5C",fontSize:15}}>🗑</button></td>
                         </tr>
                       ))}
                       {supPayments.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا توجد مدفوعات":"No payments"}</td></tr>}
@@ -2193,7 +2258,7 @@ export default function App(){
                           <td style={{padding:"12px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(r.expected_cost_aed)}</td>
                           <td style={{padding:"12px 14px",color:"#E05E5C",fontWeight:600}}>{fmtAED(r.remaining_suppliers_aed)}</td>
                           <td style={{padding:"12px 14px",fontWeight:800,color:(r.net_position_aed>=0?"#2D7A4F":"#E05E5C")}}>{fmtAED(r.net_position_aed)}</td>
-                          <td style={{padding:"12px 14px"}}><button onClick={()=>setViewingReport(r)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"عرض":"View"}</button></td>
+                          <td style={{padding:"12px 14px"}}>{editButton(()=>openReportEdit(r))}<button onClick={()=>setViewingReport(r)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"عرض":"View"}</button></td>
                         </tr>
                       ))}
                       {savedReports.length===0&&<tr><td colSpan={6} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا توجد تقارير محفوظة":"No saved reports"}</td></tr>}
@@ -2835,25 +2900,33 @@ export default function App(){
           </div>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowEditAssigned(false);setEditAssignedSup(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"9px 18px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={()=>{
+            <button onClick={async()=>{
+              if(!can("suppliers"))return;
               const supName=editAssignedSup.name;
-              setOrders(prev=>prev.map(o=>{
-                if(editAssignedSelected.includes(o.id))return {...o,supplier:supName,updated:new Date().toISOString().slice(0,10)};
-                if(o.supplier===supName&&!editAssignedSelected.includes(o.id))return {...o,supplier:"",updated:new Date().toISOString().slice(0,10)};
-                return o;
-              }));
-              setShowEditAssigned(false);setEditAssignedSup(null);
-              showT(rtl?"تم تحديث الطلبات!":"Orders updated!");
+              const targets=orders.filter(o=>editAssignedSelected.includes(o.id)||o.supplier===supName);
+              try {
+                for(const o of targets){
+                  const supplier=editAssignedSelected.includes(o.id)?supName:"";
+                  if(o.supplier===supplier)continue;
+                  const saved=await updateRecord(supabase,"orders",o.id,{supplier,updated:new Date().toISOString().slice(0,10)});
+                  setOrders(prev=>prev.map(x=>x.id===o.id?{...x,supplier:saved.supplier,updated:saved.updated}:x));
+                }
+                setShowEditAssigned(false);setEditAssignedSup(null);
+                showT(rtl?"تم تحديث الطلبات!":"Orders updated!");
+              } catch(error){showT((rtl?"تعذر حفظ بعض الإسنادات: ":"Some assignments could not be saved: ")+error.message,"error");}
             }} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"9px 22px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ التعديلات":"Save Changes"}</button>
           </div>
         </div>
       </div>}
+
+      {recordEditor&&currentUser?.role==="admin"&&<RecordEditor {...recordEditor} rtl={rtl} onClose={()=>setRecordEditor(null)}/>}
 
       {/* EDIT ORDER MODAL */}
       {showEditOrder&&editOrderTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowEditOrder(false),setEditOrderTarget(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>✏️ {rtl?"تعديل الطلب":"Edit Order"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{editOrderTarget.id}</p>
+          <label style={{display:"block",marginBottom:12}}>{t.orderDate}<input type="date" value={editOrderForm.date} onChange={e=>setEditOrderForm(p=>({...p,date:e.target.value}))} style={IS}/></label>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:8}}>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.customerName}</label><input value={editOrderForm.customer} onChange={e=>setEditOrderForm(p=>({...p,customer:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.phoneNumber}</label><input value={editOrderForm.phone} onChange={e=>setEditOrderForm(p=>({...p,phone:e.target.value}))} style={IS}/></div>
