@@ -14,6 +14,7 @@ export const PERMISSIONS = [
   {key:'manageSuppliers',group:'advanced',ar:'إضافة وتعديل وحذف الموردين',en:'Add, edit and delete suppliers',requires:'suppliers'},
   {key:'financialSummary',group:'advanced',ar:'عرض الملخص المالي في الرئيسية',en:'Dashboard financial summary'},
   {key:'expenses',group:'advanced',ar:'إدارة المصاريف',en:'Manage expenses'},
+  {key:'documents',group:'advanced',ar:'إنشاء الفواتير وعروض الأسعار',en:'Invoices and quotations'},
   {key:'accounts',group:'advanced',ar:'الحسابات ودفعات الموردين والأسعار والتقارير المالية',en:'Accounts, supplier payments, rates and financial reports'},
   {key:'settings',group:'advanced',ar:'إعدادات النظام والترقيم ورمز الحماية',en:'System settings, numbering and security PIN'},
   {key:'users',group:'advanced',ar:'إدارة الموظفين ضمن صلاحياتك',en:'Manage staff within your own permissions'},
@@ -49,7 +50,7 @@ export function canSaveUser(actor,target,next) {
   return withinPermissions(actor,next);
 }
 export function initialPage(user) {
-  return ['dashboard','orders','errors','refunds','suppliers','reports','expenses','accounts','settings','users'].find(key=>hasPermission(user,key))||'orders';
+  return ['dashboard','orders','errors','refunds','suppliers','reports','expenses','accounts','documents','settings','users'].find(key=>hasPermission(user,key))||'orders';
 }
 export async function persistUser(client,id,payload,isNew=false) {
   const table=client.from('users');

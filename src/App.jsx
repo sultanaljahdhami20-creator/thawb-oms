@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import DeliverySummary from "./DeliverySummary";
 import { DEFAULT_DELIVERY_RATE, deliverySummary, expectedNetProfit } from "./deliveryAccounting";
 import RefundsPage from "./RefundsPage";
+import BusinessDocuments from "./BusinessDocuments.jsx";
 import { isErrorOrder, dismissOrderError } from "./errorOrders";
 import InstallApp from "./InstallApp";
 import RecordEditor from "./RecordEditor";
@@ -1349,6 +1350,7 @@ export default function App(){
         {NI("refunds","↩️",rtl?"التعويضات":"Refunds",!can("refunds"))}
         {NI("suppliers","🏭",t.suppliers,!can("suppliers"))}
         {NI("reports","📈",t.reports,!can("reports"))}
+        {NI("documents","📄","Invoices & Quotations",!can("documents"))}
         {NI("users","👥",t.users,!can("users"))}
         {can("expenses")&&NI("expenses","💸",rtl?"المصاريف":"Expenses")}
         {can("accounts")&&NI("accounts","🧮",rtl?"الحسابات":"Accounts")}
@@ -1365,6 +1367,8 @@ export default function App(){
       <main className="app-main" style={{flex:1,overflow:"auto",padding:"28px 32px"}}>
         <button className="mobile-menu-btn" onClick={()=>setMobileNav(true)} style={{display:"none",position:"fixed",top:12,left:rtl?"auto":12,right:rtl?12:"auto",zIndex:30,background:bgS,border:"none",borderRadius:8,padding:"10px 14px",cursor:"pointer",color:"#fff",fontSize:18}}>☰</button>
         {toast&&<div style={{position:"fixed",top:20,right:20,zIndex:999,background:toast.type==="error"?"#E05E5C":"#2D7A4F",color:"#fff",padding:"12px 20px",borderRadius:10,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,.3)"}}>{toast.type==="error"?"⚠️ ":"✓ "}{toast.msg}</div>}
+
+        {can("documents")&&<div style={{display:page==="documents"?"block":"none"}}><BusinessDocuments currentUser={currentUser} dark={dark}/></div>}
 
         {/* DASHBOARD */}
         {page==="dashboard"&&can("dashboard")&&<div>
