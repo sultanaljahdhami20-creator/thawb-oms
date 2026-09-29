@@ -55,7 +55,7 @@ export default function InstallApp({rtl = false}) {
     </button>
     {createPortal(<dialog ref={dialog} className="install-app-dialog" dir={rtl ? 'rtl' : 'ltr'} aria-labelledby="install-app-title" onClick={event => {if (event.target === dialog.current) dialog.current.close();}}>
       <div className="install-app-heading">
-        <img src="/pwa/icon-192.png" width="56" height="56" alt=""/>
+        <img src="/pwa/icon-192.png?v=brand-2" width="56" height="56" alt=""/>
         <div><span className="install-app-brand">THAWB / ثوب</span><h2 id="install-app-title">{rtl ? 'ثوب، بلمسة واحدة' : 'THAWB, one tap away'}</h2></div>
         <button type="button" className="install-app-close" onClick={() => dialog.current.close()} aria-label={rtl ? 'إغلاق' : 'Close'}>×</button>
       </div>
