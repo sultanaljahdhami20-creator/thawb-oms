@@ -1,3 +1,4 @@
+import { isSupplierDebt, supplierAccountTotals, supplierEntryLabel } from "./supplierAccounting";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import * as XLSX from "xlsx";
@@ -112,6 +113,7 @@ export default function App(){
   const [savingDeliveryRate,setSavingDeliveryRate]=useState(false);
   const [exchangeRate,setExchangeRate]=useState(DEFAULT_EXCHANGE_RATE);
   const [supPayments,setSupPayments]=useState([]);
+  const [savingSupEntry,setSavingSupEntry]=useState(false);
   const [savedReports,setSavedReports]=useState([]);
   const [selectedAccSup,setSelectedAccSup]=useState(null);
   const [showSupPayModal,setShowSupPayModal]=useState(false);
@@ -512,9 +514,9 @@ export default function App(){
   const openExpenseEdit=expense=>adminEdit(rtl?"تعديل المصروف":"Edit expense",[
     field("date","التاريخ","Date",{type:"date",required:true}),field("category","الفئة","Category",{required:true}),field("amount","المبلغ (ر.ع)","Amount (OMR)",{type:"number",min:0.001,step:0.001,required:true}),field("note","الملاحظة","Note",{type:"textarea"})
   ],expense,async patch=>{const saved=await updateRecord(supabase,"expenses",expense.id,patch);setExpenses(prev=>prev.map(e=>e.id===expense.id?saved:e));});
-  const openSupplierPaymentEdit=payment=>adminEdit(rtl?"تعديل دفعة المورد":"Edit supplier payment",[
+  const openSupplierPaymentEdit=payment=>adminEdit(rtl?"تعديل قيد المورد":"Edit supplier entry",[
     field("supplier","المورد","Supplier",{required:true,options:[...new Set([payment.supplier,...suppliers.map(s=>s.name)])].map(name=>({value:name,label:name}))}),
-    field("date","التاريخ","Date",{type:"date",required:true}),field("amount","المبلغ (درهم)","Amount (AED)",{type:"number",min:0.01,step:0.01,required:true}),field("method","طريقة الدفع","Payment method"),field("ref","المرجع","Reference"),field("note","الملاحظة","Note",{type:"textarea"})
+    field("date","التاريخ","Date",{type:"date",required:true}),field("amount","المبلغ (درهم)","Amount (AED)",{type:"number",min:0.01,step:0.01,required:true}),field("method","نوع القيد / طريقة الدفع","Entry type / Payment method",{required:true,options:["Cash","Bank Transfer","Cheque","Other","Supplier Refund","Opening Debt","Opening Credit",...(payment.method?[payment.method]:[])].filter((v,i,a)=>a.indexOf(v)===i).map(value=>({value,label:supplierEntryLabel({method:value},rtl)}))}),field("ref","المرجع","Reference"),field("note","الملاحظة","Note",{type:"textarea"})
   ],payment,async patch=>{const saved=await updateRecord(supabase,"supplier_account_payments",payment.id,patch);setSupPayments(prev=>prev.map(p=>p.id===payment.id?saved:p));});
   const openReportEdit=report=>adminEdit(rtl?"تصحيح الرصيد في التقرير":"Correct report balance",[
     field("available_balance_omr","الرصيد المتاح (ر.ع)","Available balance (OMR)",{type:"number",step:0.001,required:true})
@@ -538,8 +540,8 @@ export default function App(){
   };
   const ordersWithoutType=orders.filter(o=>!o.orderType||!(typeCosts[o.orderType]>0));
   const totalExpectedCostAED=orders.reduce((s,o)=>s+orderExpectedCostAED(o),0);
-  const totalPaidToSuppliersAED=supPayments.reduce((s,p)=>s+Number(p.amount||0),0);
-  const expectedRemainingAED=totalExpectedCostAED-totalPaidToSuppliersAED;
+  const {paid:totalPaidToSuppliersAED,debt:totalSupplierDebtAED}=supplierAccountTotals(supPayments);
+  const expectedRemainingAED=totalExpectedCostAED+totalSupplierDebtAED-totalPaidToSuppliersAED;
   const customerOutstandingOMR=orders.reduce((s,o)=>s+(Number(o.total||0)-Number(o.paid||0)),0);
 
   const delivery=deliverySummary(orders,deliveryRate);
@@ -711,19 +713,21 @@ export default function App(){
 
   const saveSupplierPayment=async()=>{
     if(!can("accounts"))return;
-    if(!supPayForm.supplier||!supPayForm.amount||!supPayForm.date){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
+    if(savingSupEntry)return;
+    if((accTab==="debts"&&!isSupplierDebt(supPayForm))||!suppliers.some(s=>s.name===supPayForm.supplier)||!Number.isFinite(Number(supPayForm.amount))||Number(supPayForm.amount)<=0||!supPayForm.date){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
     const entry={supplier:supPayForm.supplier,amount:Number(supPayForm.amount),date:supPayForm.date,method:supPayForm.method||"",ref:supPayForm.ref||"",note:supPayForm.note||"",by:currentUser?.name||"Admin",created_at:new Date().toISOString()};
-    try{const {data}=await supabase.from("supplier_account_payments").insert(entry).select().single();if(data)entry.id=data.id;}catch(e){}
+    setSavingSupEntry(true);
+    try{const {data,error}=await supabase.from("supplier_account_payments").insert(entry).select().single();if(error)throw error;if(!data?.id)throw new Error("No saved record");entry.id=data.id;}catch(error){showT((rtl?"تعذر الحفظ: ":"Could not save: ")+error.message,"error");return;}finally{setSavingSupEntry(false);}
     setSupPayments(prev=>[entry,...prev]);
-    logActivity(rtl?"دفعة مورد (حسابات)":"Supplier payment (accounts)",`${supPayForm.supplier} — ${fmtAED(Number(supPayForm.amount))}`);
+    logActivity(supplierEntryLabel(entry,rtl),`${supPayForm.supplier} — ${fmtAED(Number(supPayForm.amount))}`);
     setSupPayForm({supplier:"",amount:"",date:"",method:"",ref:"",note:""});setShowSupPayModal(false);
-    showT(rtl?"تم تسجيل الدفعة":"Payment saved");
+    showT(rtl?"تم حفظ القيد":"Entry saved");
   };
 
   const deleteSupplierPayment=async(pay)=>{
     if(!can("accounts"))return;
-    if(!window.confirm(rtl?"حذف هذه الدفعة؟":"Delete this payment?"))return;
-    try{await supabase.from("supplier_account_payments").delete().eq("id",pay.id);}catch(e){}
+    if(!window.confirm(rtl?"حذف هذا القيد؟":"Delete this entry?"))return;
+    try{const {data,error}=await supabase.from("supplier_account_payments").delete().eq("id",pay.id).select("id");if(error)throw error;if(!data?.length)throw new Error("Entry was not deleted");}catch(error){showT((rtl?"تعذر الحذف: ":"Could not delete: ")+error.message,"error");return;}
     setSupPayments(prev=>prev.filter(p=>p.id!==pay.id));
     showT(rtl?"تم الحذف":"Deleted");
   };
@@ -735,8 +739,8 @@ export default function App(){
     const supplierBreakdown=suppliers.map(s=>{
       const sOrders=orders.filter(o=>o.supplier===s.name);
       const expCost=sOrders.reduce((sum,o)=>sum+orderExpectedCostAED(o),0);
-      const paid=supPayments.filter(p=>p.supplier===s.name).reduce((sum,p)=>sum+Number(p.amount||0),0);
-      return {name:s.name,orders:sOrders.length,jackets:sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),expectedCost:expCost,paid,remaining:expCost-paid};
+      const {paid,debt}=supplierAccountTotals(supPayments,s.name);
+      return {name:s.name,orders:sOrders.length,jackets:sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),expectedCost:expCost,paid,debt,remaining:expCost+debt-paid};
     });
     const netPositionOMR=bal+customerOutstandingOMR-(expectedRemainingAED/exchangeRate)-delivery.remaining;
     const report={
@@ -1123,7 +1127,7 @@ export default function App(){
 
   const deletePayment=async(oid,payIdx)=>{
     if(!can("editPayments"))return;
-    if(!window.confirm(rtl?"حذف هذه الدفعة؟":"Delete this payment?"))return;
+    if(!window.confirm(rtl?"حذف هذا القيد؟":"Delete this entry?"))return;
     const order=orders.find(o=>o.id===oid);
     if(!order)return;
     const pay=order.payments[payIdx];
@@ -2049,8 +2053,8 @@ export default function App(){
 
             {/* Tabs */}
             <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap",borderBottom:"1px solid "+bc,paddingBottom:0}}>
-              {[["overview",rtl?"نظرة عامة":"Overview","📊"],["suppliers",rtl?"الموردون":"Suppliers","🏭"],["delivery",rtl?"التوصيل":"Delivery",""],["payments",rtl?"المدفوعات":"Payments","💵"],["reports",rtl?"التقارير":"Reports","📄"]].map(([tab,label,icon])=>(
-                <button key={tab} onClick={()=>{setAccTab(tab);setSelectedAccSup(null);setViewingReport(null);}} style={{background:accTab===tab?"#202F4D":"transparent",color:accTab===tab?"#fff":tm,border:"none",borderRadius:"8px 8px 0 0",padding:"10px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{icon} {label}</button>
+              {[["overview",rtl?"نظرة عامة":"Overview","📊"],["suppliers",rtl?"الموردون":"Suppliers","🏭"],["delivery",rtl?"التوصيل":"Delivery",""],["payments",rtl?"المدفوعات":"Payments","💵"],["debts",rtl?"الديون السابقة":"Previous debts","📒"],["reports",rtl?"التقارير":"Reports","📄"]].map(([tab,label,icon])=>(
+                <button key={tab} onClick={()=>{setAccTab(tab);setSupPayMethodFilter("");setSelectedAccSup(null);setViewingReport(null);}} style={{background:accTab===tab?"#202F4D":"transparent",color:accTab===tab?"#fff":tm,border:"none",borderRadius:"8px 8px 0 0",padding:"10px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{icon} {label}</button>
               ))}
             </div>
 
@@ -2076,7 +2080,7 @@ export default function App(){
                 </div>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <div style={{fontSize:12,color:tm,marginBottom:6}}>⏳ {rtl?"المتبقي للموردين":"Expected Remaining"}</div>
-                  <div style={{fontSize:24,fontWeight:900,color:"#E05E5C"}}>{fmtAED(expectedRemainingAED)}</div>
+                  <div style={{fontSize:24,fontWeight:900,color:"#E05E5C"}}>{fmtAED(expectedRemainingAED)}</div><div style={{fontSize:11,color:tm}}>{rtl?"يشمل صافي الديون السابقة: ":"Includes net previous debts: "}{fmtAED(totalSupplierDebtAED)}</div>
                   <div style={{fontSize:11,color:tm}}>≈ {fmtOMR(expectedRemainingAED/RATE)}</div>
                 </div>
                 <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
@@ -2132,25 +2136,25 @@ export default function App(){
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                      {[rtl?"المورد":"Supplier",rtl?"طلبات":"Orders",rtl?"جاكيتات":"Jackets",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
+                      {[rtl?"المورد":"Supplier",rtl?"طلبات":"Orders",rtl?"جاكيتات":"Jackets",rtl?"التكلفة المتوقعة":"Expected Cost",rtl?"الديون السابقة (صافي)":"Previous debts (net)",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
                       {suppliers.map(s=>{
                         const sOrders=orders.filter(o=>o.supplier===s.name);
                         const expCost=sOrders.reduce((sum,o)=>sum+orderExpectedCostAED(o),0);
-                        const paid=supPayments.filter(p=>p.supplier===s.name).reduce((sum,p)=>sum+Number(p.amount||0),0);
-                        const remaining=expCost-paid;
+                        const {paid,debt}=supplierAccountTotals(supPayments,s.name);
+                        const remaining=expCost+debt-paid;
                         return <tr key={s.id} style={{borderTop:"1px solid "+bc}}>
                           <td style={{padding:"12px 14px",fontWeight:700}}>{s.name}</td>
                           <td style={{padding:"12px 14px",textAlign:rtl?"right":"left"}}>{sOrders.length}</td>
                           <td style={{padding:"12px 14px",textAlign:rtl?"right":"left"}}>{sOrders.reduce((x,o)=>x+Number(o.jackets||0),0)}</td>
                           <td style={{padding:"12px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(expCost)}</td>
-                          <td style={{padding:"12px 14px",color:"#2D7A4F",fontWeight:600}}>{fmtAED(paid)}</td>
+                          <td style={{padding:"12px 14px"}}>{fmtAED(debt)}</td><td style={{padding:"12px 14px",color:"#2D7A4F",fontWeight:600}}>{fmtAED(paid)}</td>
                           <td style={{padding:"12px 14px",color:remaining>0?"#E05E5C":"#2D7A4F",fontWeight:700}}>{fmtAED(remaining)}</td>
                           <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedAccSup(s.name)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
                         </tr>;
                       })}
-                      {suppliers.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا يوجد موردون":"No suppliers"}</td></tr>}
+                      {suppliers.length===0&&<tr><td colSpan={8} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا يوجد موردون":"No suppliers"}</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -2162,15 +2166,15 @@ export default function App(){
               const s=suppliers.find(x=>x.name===selectedAccSup);
               const sOrders=orders.filter(o=>o.supplier===selectedAccSup);
               const expCost=sOrders.reduce((sum,o)=>sum+orderExpectedCostAED(o),0);
-              const paid=supPayments.filter(p=>p.supplier===selectedAccSup).reduce((sum,p)=>sum+Number(p.amount||0),0);
-              const remaining=expCost-paid;
+              const {paid,debt}=supplierAccountTotals(supPayments,selectedAccSup);
+              const remaining=expCost+debt-paid;
               return <div>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
                   <button onClick={()=>setSelectedAccSup(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
-                  <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>🏭 {selectedAccSup}</h2>
+                  <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>🏭 {selectedAccSup}</h2><button onClick={()=>{setAccTab("debts");setSupPaySupFilter(selectedAccSup);setSupPayMethodFilter("");setSupPayForm({supplier:selectedAccSup,amount:"",date:new Date().toISOString().slice(0,10),method:"Opening Debt",ref:"",note:""});setShowSupPayModal(true);}}>{rtl?"إضافة دين سابق":"Add previous debt"}</button>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:20}}>
-                  {[[rtl?"طلبات":"Orders",sOrders.length,tp],[rtl?"جاكيتات":"Jackets",sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),tp],[rtl?"التكلفة المتوقعة":"Expected",fmtAED(expCost),"#202F4D"],[rtl?"المدفوع":"Paid",fmtAED(paid),"#2D7A4F"],[rtl?"المتبقي":"Remaining",fmtAED(remaining),remaining>0?"#E05E5C":"#2D7A4F"]].map(([k,v,c])=>(
+                  {[[rtl?"طلبات":"Orders",sOrders.length,tp],[rtl?"جاكيتات":"Jackets",sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),tp],[rtl?"التكلفة المتوقعة":"Expected",fmtAED(expCost),"#202F4D"],[rtl?"الديون السابقة (صافي)":"Previous debts (net)",fmtAED(debt),tp],[rtl?"المدفوع":"Paid",fmtAED(paid),"#2D7A4F"],[rtl?"المتبقي":"Remaining",fmtAED(remaining),remaining>0?"#E05E5C":"#2D7A4F"]].map(([k,v,c])=>(
                     <div key={k} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:16}}>
                       <div style={{fontSize:11,color:tm,marginBottom:4}}>{k}</div>
                       <div style={{fontSize:18,fontWeight:800,color:c}}>{v}</div>
@@ -2204,7 +2208,8 @@ export default function App(){
             })()}
 
             {/* ===== PAYMENTS TAB ===== */}
-            {accTab==="payments"&&<div>
+            {["payments","debts"].includes(accTab)&&<div>
+              {accTab==="debts"&&<p style={{color:tm}}>{rtl?"سجّل الرصيد السابق فقط، دون إعادة إدخال تكلفة الطلبات الموجودة. الموجب علينا للمورد والسالب لنا عليه. السداد يسجّل من المدفوعات، واختر «مبلغ مستلم من المورد» عند تحصيل دين لنا عليه.":"Record opening balances only, excluding existing orders. Positive means payable; negative means receivable. Record settlements in Payments; choose Supplier refund when receiving money owed to us."}</p>}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
                 <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
                   <select value={supPaySupFilter} onChange={e=>setSupPaySupFilter(e.target.value)} style={{...IS,width:"auto"}}>
@@ -2213,10 +2218,10 @@ export default function App(){
                   </select>
                   <select value={supPayMethodFilter} onChange={e=>setSupPayMethodFilter(e.target.value)} style={{...IS,width:"auto"}}>
                     <option value="">{rtl?"كل الطرق":"All Methods"}</option>
-                    {["Cash","Bank Transfer","Cheque","Other"].map(m=><option key={m} value={m}>{m}</option>)}
+                    {(accTab==="debts"?["Opening Debt","Opening Credit"]:["Cash","Bank Transfer","Cheque","Other","Supplier Refund"]).map(m=><option key={m} value={m}>{supplierEntryLabel({method:m},rtl)}</option>)}
                   </select>
                 </div>
-                <button onClick={()=>{setSupPayForm({supplier:"",amount:"",date:new Date().toISOString().slice(0,10),method:"",ref:"",note:""});setShowSupPayModal(true);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>+ {rtl?"دفعة مورد":"Add Payment"}</button>
+                <button onClick={()=>{setSupPayForm({supplier:"",amount:"",date:new Date().toISOString().slice(0,10),method:accTab==="debts"?"Opening Debt":"",ref:"",note:""});setShowSupPayModal(true);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>+ {accTab==="debts"?(rtl?"إضافة دين سابق":"Add previous debt"):(rtl?"دفعة مورد":"Add Payment")}</button>
               </div>
               <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                 <div style={{overflowX:"auto"}}>
@@ -2225,18 +2230,18 @@ export default function App(){
                       {[rtl?"التاريخ":"Date",rtl?"المورد":"Supplier",rtl?"المبلغ":"Amount",rtl?"الطريقة":"Method",rtl?"مرجع":"Ref",rtl?"سجّل":"By",""].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                     </tr></thead>
                     <tbody>
-                      {supPayments.filter(p=>(!supPaySupFilter||p.supplier===supPaySupFilter)&&(!supPayMethodFilter||p.method===supPayMethodFilter)).map((p,i)=>(
+                      {supPayments.filter(p=>isSupplierDebt(p)===(accTab==="debts")&&(!supPaySupFilter||p.supplier===supPaySupFilter)&&(!supPayMethodFilter||p.method===supPayMethodFilter)).map((p,i)=>(
                         <tr key={p.id||i} style={{borderTop:"1px solid "+bc}}>
                           <td style={{padding:"12px 14px",fontFamily:"monospace",fontSize:12}}>{p.date}</td>
                           <td style={{padding:"12px 14px",fontWeight:600}}>{p.supplier}</td>
                           <td style={{padding:"12px 14px",fontWeight:800,color:"#2D7A4F"}}>{fmtAED(p.amount)}</td>
-                          <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{p.method||"--"}</td>
-                          <td style={{padding:"12px 14px",color:tm,fontSize:12,fontFamily:"monospace"}}>{p.ref||"--"}</td>
+                          <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{supplierEntryLabel(p,rtl)}</td>
+                          <td style={{padding:"12px 14px",color:tm,fontSize:12,fontFamily:"monospace"}}>{p.ref||"--"}{p.note&&<div style={{fontFamily:"inherit",marginTop:4}}>{p.note}</div>}</td>
                           <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{p.by}</td>
                           <td style={{padding:"12px 14px"}}>{editButton(()=>openSupplierPaymentEdit(p))}<button onClick={()=>deleteSupplierPayment(p)} style={{background:"transparent",border:"none",cursor:"pointer",color:"#E05E5C",fontSize:15}}>🗑</button></td>
                         </tr>
                       ))}
-                      {supPayments.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا توجد مدفوعات":"No payments"}</td></tr>}
+                      {supPayments.filter(p=>isSupplierDebt(p)===(accTab==="debts")&&(!supPaySupFilter||p.supplier===supPaySupFilter)&&(!supPayMethodFilter||p.method===supPayMethodFilter)).length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا توجد قيود":"No entries"}</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -2332,7 +2337,7 @@ export default function App(){
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                       <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                        {[rtl?"المورد":"Supplier",rtl?"جاكيتات":"Jackets",rtl?"التكلفة":"Cost",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
+                        {[rtl?"المورد":"Supplier",rtl?"جاكيتات":"Jackets",rtl?"التكلفة":"Cost",rtl?"الديون السابقة (صافي)":"Previous debts (net)",rtl?"المدفوع":"Paid",rtl?"المتبقي":"Remaining"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
                       </tr></thead>
                       <tbody>
                         {breakdown.map((b,i)=>(
@@ -2340,7 +2345,7 @@ export default function App(){
                             <td style={{padding:"10px 14px",fontWeight:600}}>{b.name}</td>
                             <td style={{padding:"10px 14px",textAlign:rtl?"right":"left"}}>{b.jackets}</td>
                             <td style={{padding:"10px 14px",color:"#202F4D"}}>{fmtAED(b.expectedCost)}</td>
-                            <td style={{padding:"10px 14px",color:"#2D7A4F"}}>{fmtAED(b.paid)}</td>
+                            <td style={{padding:"10px 14px"}}>{fmtAED(b.debt||0)}</td><td style={{padding:"10px 14px",color:"#2D7A4F"}}>{fmtAED(b.paid)}</td>
                             <td style={{padding:"10px 14px",color:b.remaining>0?"#E05E5C":"#2D7A4F"}}>{fmtAED(b.remaining)}</td>
                           </tr>
                         ))}
@@ -2389,7 +2394,7 @@ export default function App(){
 
             {showSupPayModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowSupPayModal(false)}>
               <div style={{background:bgC,borderRadius:16,padding:28,width:440,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
-                <h2 style={{margin:"0 0 20px",fontSize:17,fontWeight:800}}>💵 {rtl?"دفعة مورد جديدة":"New Supplier Payment"}</h2>
+                <h2 style={{margin:"0 0 20px",fontSize:17,fontWeight:800}}>💵 {isSupplierDebt(supPayForm)?(rtl?"إضافة دين سابق":"Add previous debt"):(rtl?"دفعة مورد جديدة":"New Supplier Payment")}</h2>
                 <div style={{display:"flex",flexDirection:"column",gap:14}}>
                   <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"المورد *":"Supplier *"}</label>
                     <select value={supPayForm.supplier} onChange={e=>setSupPayForm(p=>({...p,supplier:e.target.value}))} style={IS}>
@@ -2403,10 +2408,10 @@ export default function App(){
                   <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"التاريخ *":"Date *"}</label>
                     <input type="date" value={supPayForm.date} onChange={e=>setSupPayForm(p=>({...p,date:e.target.value}))} style={IS}/>
                   </div>
-                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"طريقة الدفع":"Method"}</label>
+                  <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{isSupplierDebt(supPayForm)?(rtl?"اتجاه الدين":"Debt direction"):(rtl?"طريقة الدفع":"Method")}</label>
                     <select value={supPayForm.method} onChange={e=>setSupPayForm(p=>({...p,method:e.target.value}))} style={IS}>
                       <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
-                      {["Cash","Bank Transfer","Cheque","Other"].map(m=><option key={m} value={m}>{m}</option>)}
+                      {(accTab==="debts"?["Opening Debt","Opening Credit"]:["Cash","Bank Transfer","Cheque","Other","Supplier Refund"]).map(m=><option key={m} value={m}>{supplierEntryLabel({method:m},rtl)}</option>)}
                     </select>
                   </div>
                   <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"رقم مرجعي":"Reference"}</label>
@@ -2418,7 +2423,7 @@ export default function App(){
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowSupPayModal(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                  <button onClick={saveSupplierPayment} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ الدفعة":"Save"}</button>
+                  <button disabled={savingSupEntry} onClick={saveSupplierPayment} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{savingSupEntry?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"حفظ":"Save")}</button>
                 </div>
               </div>
             </div>}
@@ -3076,7 +3081,7 @@ export default function App(){
             {printO.payments.length===0?<p style={{color:C.slate,fontSize:12}}>{t.noPayments}</p>:
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{background:C.slateLight}}>{["#",t.date,t.total,t.refNumber,t.recordedBy].map(h=><th key={h} style={{padding:"5px 8px",textAlign:"left",color:C.slate,fontWeight:700}}>{h}</th>)}</tr></thead>
-              <tbody>{printO.payments.map((p,i)=><tr key={i} style={{borderBottom:"1px solid #E2E8F0"}}><td style={{padding:"5px 8px",color:C.slate}}>{i+1}</td><td style={{padding:"5px 8px"}}>{p.date}</td><td style={{padding:"5px 8px",fontWeight:700,color:"#2D7A4F"}}>{fmt(p.amount)}</td><td style={{padding:"5px 8px",color:C.slate,fontFamily:"monospace"}}>{p.ref||"--"}</td><td style={{padding:"5px 8px",color:C.slate}}>{p.by}</td></tr>)}</tbody>
+              <tbody>{printO.payments.map((p,i)=><tr key={i} style={{borderBottom:"1px solid #E2E8F0"}}><td style={{padding:"5px 8px",color:C.slate}}>{i+1}</td><td style={{padding:"5px 8px"}}>{p.date}</td><td style={{padding:"5px 8px",fontWeight:700,color:"#2D7A4F"}}>{fmt(p.amount)}</td><td style={{padding:"5px 8px",color:C.slate,fontFamily:"monospace"}}>{p.ref||"--"}{p.note&&<div style={{fontFamily:"inherit",marginTop:4}}>{p.note}</div>}</td><td style={{padding:"5px 8px",color:C.slate}}>{p.by}</td></tr>)}</tbody>
             </table>}
             <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid #E2E8F0",textAlign:"center",fontSize:10,color:C.slate}}>{t.printFooter}</div>
           </div>
