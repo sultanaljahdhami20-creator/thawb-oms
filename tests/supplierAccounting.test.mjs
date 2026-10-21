@@ -18,3 +18,17 @@ test('legacy payments, reload, edits and deletion retain correct totals',()=>{
  assert.deepEqual(supplierAccountTotals([{amount:'25',supplier:'A'}]),{debt:0,paid:25});
  assert.equal(isSupplierDebt({method:'Bank Transfer'}),false);
 });
+
+import {supplierOrderCost} from '../src/supplierAccounting.js';
+test('supplier rates add each recorded extra once and preserve general rates by default',()=>{
+ const order={jackets:10,extras:3,orderType:'A'};
+ const rates={A:20,_default:15};
+ assert.equal(supplierOrderCost(order,{unitPrice:8},rates).total,200);
+ const supplier={unitPrice:8,accountingSettings:{useSupplierRate:true,chargeExtras:true,extraLogoRate:2.5}};
+ assert.deepEqual(supplierOrderCost(order,supplier,rates),{unitRate:8,extraRate:2.5,baseCost:80,extrasCost:7.5,total:87.5});
+ assert.equal(supplierOrderCost(order,{...supplier,accountingSettings:{...supplier.accountingSettings,chargeExtras:false}},rates).total,80);
+ assert.equal(supplierOrderCost({...order,extras:0},supplier,rates).total,80);
+ assert.equal(supplierOrderCost({...order,orderType:''},undefined,rates).total,150);
+ assert.equal(supplierOrderCost(order,{unitPrice:0,accountingSettings:{useSupplierRate:true}},rates).total,0);
+ assert.equal(supplierOrderCost(order,JSON.parse(JSON.stringify(supplier)),rates).total,87.5);
+});

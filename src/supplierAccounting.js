@@ -15,3 +15,14 @@ export function supplierAccountTotals(entries, supplier) {
     return totals;
   },{paid:0,debt:0});
 }
+
+// All supplier costs use AED. Missing settings preserve the general type rates.
+export function supplierOrderCost(order, supplier, typeCosts = {}) {
+  const settings = supplier?.accountingSettings || {};
+  const generalRate = Number(typeCosts[order.orderType]) > 0 ? Number(typeCosts[order.orderType]) : Number(typeCosts._default) || 0;
+  const unitRate = settings.useSupplierRate ? Number(supplier.unitPrice) || 0 : generalRate;
+  const extraRate = settings.chargeExtras ? Number(settings.extraLogoRate) || 0 : 0;
+  const baseCost = Math.round((Number(order.jackets) || 0) * unitRate * 100) / 100;
+  const extrasCost = Math.round((Number(order.extras) || 0) * extraRate * 100) / 100;
+  return {unitRate, extraRate, baseCost, extrasCost, total: Math.round((baseCost + extrasCost) * 100) / 100};
+}

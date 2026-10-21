@@ -1,4 +1,4 @@
-import { isSupplierDebt, supplierAccountTotals, supplierEntryLabel } from "./supplierAccounting";
+import { supplierOrderCost, isSupplierDebt, supplierAccountTotals, supplierEntryLabel } from "./supplierAccounting";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import * as XLSX from "xlsx";
@@ -147,7 +147,7 @@ export default function App(){
   // ── Supplier modals
   const [showAddSup,setShowAddSup]=useState(false);
   const [editSup,setEditSup]=useState(null);
-  const [supForm,setSupForm]=useState({name:"",phone:"",spec:"",unitPrice:""});
+  const [supForm,setSupForm]=useState({name:"",phone:"",spec:"",unitPrice:"",accountingSettings:{useSupplierRate:false,chargeExtras:false,extraLogoRate:""}});
   const [showAssign,setShowAssign]=useState(false);
   const [assignSup,setAssignSup]=useState("");
   const [assignSelected,setAssignSelected]=useState([]);
@@ -404,7 +404,7 @@ export default function App(){
         if(sups&&sups.length>0){
           setSuppliers(sups.map(s=>({
             ...s,
-            unitPrice:Number(s.unit_price)||0,
+            unitPrice:Number(s.unit_price)||0, accountingSettings:s.accounting_settings||{},
             payments:(s.supplier_payments||[]).map(p=>({date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""}))
           })));
         }
@@ -533,11 +533,8 @@ export default function App(){
   const fmtAED=(n)=>Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+" AED";
   const fmtOMR=(n)=>Number(n||0).toLocaleString(undefined,{minimumFractionDigits:3,maximumFractionDigits:3})+" OMR";
   // تكلفة النوع بالدرهم مباشرة (المستخدم يدخل السعر بالدرهم لكل جاكيت)
-  const orderExpectedCostAED=(o)=>{
-    const hasType=o.orderType&&typeCosts[o.orderType]>0;
-    const typeCost=hasType?typeCosts[o.orderType]:(typeCosts._default||0);
-    return (Number(o.jackets)||0)*typeCost;
-  };
+  const orderSupplierCost=o=>supplierOrderCost(o,suppliers.find(s=>s.name===o.supplier),typeCosts);
+  const orderExpectedCostAED=o=>orderSupplierCost(o).total;
   const ordersWithoutType=orders.filter(o=>!o.orderType||!(typeCosts[o.orderType]>0));
   const totalExpectedCostAED=orders.reduce((s,o)=>s+orderExpectedCostAED(o),0);
   const {paid:totalPaidToSuppliersAED,debt:totalSupplierDebtAED}=supplierAccountTotals(supPayments);
@@ -1157,16 +1154,23 @@ export default function App(){
   // ── Supplier actions
   const saveSup=async()=>{
     if(!can("manageSuppliers"))return;
-    if(!supForm.name){showT(rtl?"أدخل اسم المورد":"Enter supplier name","error");return;}
-    if(editSup){
-      try{await supabase.from("suppliers").update({name:supForm.name,phone:supForm.phone,spec:supForm.spec,unit_price:Number(supForm.unitPrice)||0}).eq("id",editSup.id);}catch(e){}
-      setSuppliers(prev=>prev.map(s=>s.id===editSup.id?{...s,...supForm,unitPrice:Number(supForm.unitPrice)||0}:s));showT(t.supplierUpdated);
-    } else {
-      const newId="sup-"+Date.now();
-      try{await supabase.from("suppliers").insert({id:newId,name:supForm.name,phone:supForm.phone,spec:supForm.spec,unit_price:Number(supForm.unitPrice)||0});}catch(e){}
-      setSuppliers(prev=>[...prev,{id:newId,...supForm,unitPrice:Number(supForm.unitPrice)||0,payments:[]}]);showT(t.supplierAdded);
-    }
-    setShowAddSup(false);setEditSup(null);setSupForm({name:"",phone:"",spec:"",unitPrice:""});
+    if(editSup&&supForm.name!==editSup.name&&(orders.some(o=>o.supplier===editSup.name)||supPayments.some(p=>p.supplier===editSup.name))){showT(rtl?"لا يمكن تغيير اسم مورد مرتبط بطلبات":"Cannot rename a supplier with assigned orders","error");return;}
+    if(!supForm.name.trim()){showT(rtl?"أدخل اسم المورد":"Enter supplier name","error");return;}
+    if(suppliers.some(s=>s.id!==editSup?.id&&s.name===supForm.name.trim())){showT(rtl?"اسم المورد موجود مسبقًا":"Supplier name already exists","error");return;}
+    const settings=supForm.accountingSettings||{};
+    if(settings.useSupplierRate&&supForm.unitPrice===""){showT(rtl?"أدخل سعر الجاكيت":"Enter jacket rate","error");return;}
+    if([supForm.unitPrice,settings.extraLogoRate].some(v=>v!==undefined&&v!==""&&(!Number.isFinite(Number(v))||Number(v)<0))|| (settings.chargeExtras&&(settings.extraLogoRate===""||settings.extraLogoRate===undefined))){showT(rtl?"أدخل أسعارًا صحيحة غير سالبة":"Enter valid non-negative rates","error");return;}
+    const id=editSup?.id||"sup-"+Date.now();
+    const payload={name:supForm.name.trim(),phone:supForm.phone,spec:supForm.spec,unit_price:Number(supForm.unitPrice)||0,accounting_settings:{...settings,extraLogoRate:Number(settings.extraLogoRate)||0}};
+    try{
+      const query=editSup?supabase.from("suppliers").update(payload).eq("id",id):supabase.from("suppliers").insert({id,...payload});
+      const {data,error}=await query.select().single();
+      if(error)throw error;
+      const saved={...supForm,id:data.id,unitPrice:Number(data.unit_price)||0,accountingSettings:data.accounting_settings||{}};
+      setSuppliers(prev=>editSup?prev.map(s=>s.id===id?{...s,...saved}:s):[...prev,saved]);
+      showT(editSup?t.supplierUpdated:t.supplierAdded);
+    }catch(error){showT((rtl?"تعذر حفظ المورد: ":"Could not save supplier: ")+error.message,"error");return;}
+    setShowAddSup(false);setEditSup(null);setSupForm({name:"",phone:"",spec:"",unitPrice:"",accountingSettings:{useSupplierRate:false,chargeExtras:false,extraLogoRate:""}});
   };
 
   const deleteSup=async(id)=>{
@@ -1546,15 +1550,16 @@ export default function App(){
                 </div>
                 {o.supplier&&(()=>{
                   const sup=suppliers.find(s=>s.name===o.supplier);
-                  if(!sup||!sup.unitPrice)return null;
+                  if(!sup)return null;
                   return <div style={{background:C.slateLight,borderRadius:8,padding:"8px 12px",marginTop:6,fontSize:12}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
                       <span style={{color:tm}}>{rtl?"سعر اليونيت":"Unit Price"}</span>
-                      <span style={{fontWeight:700}}>{fmt(sup.unitPrice)}</span>
+                      <span style={{fontWeight:700}}>{fmtAED(orderSupplierCost(o).unitRate)}</span>
                     </div>
+                    <div>{rtl?"الإكسترا: ":"Extras: "}{o.extras||0} × {fmtAED(orderSupplierCost(o).extraRate)} = {fmtAED(orderSupplierCost(o).extrasCost)}</div>
                     <div style={{display:"flex",justifyContent:"space-between"}}>
                       <span style={{color:tm}}>{rtl?"تكلفة هذا الطلب (تقديري)":"Est. Cost for this Order"}</span>
-                      <span style={{fontWeight:800,color:"#E05E5C"}}>{fmt(o.jackets*sup.unitPrice)}</span>
+                      <span style={{fontWeight:800,color:"#E05E5C"}}>{fmtAED(orderExpectedCostAED(o))}</span>
                     </div>
                   </div>;
                 })()}
@@ -1626,7 +1631,7 @@ export default function App(){
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.suppliers}</h1>
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>setShowAssign(true)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {t.assignOrders}</button>
-              {can("manageSuppliers")&&<button onClick={()=>{setEditSup(null);setSupForm({name:"",phone:"",spec:""});setShowAddSup(true);}} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{t.addSupplier}</button>}
+              {can("manageSuppliers")&&<button onClick={()=>{setEditSup(null);setSupForm({name:"",phone:"",spec:"",unitPrice:"",accountingSettings:{useSupplierRate:false,chargeExtras:false,extraLogoRate:""}});setShowAddSup(true);}} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{t.addSupplier}</button>}
             </div>
           </div>
           {suppliers.length===0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}>{t.noSuppliersYet}</div>}
@@ -1643,7 +1648,7 @@ export default function App(){
                     <div style={{fontSize:12,color:tm}}>{sup.phone} {sup.spec&&"· "+sup.spec}</div>
                   </div>
                   {can("manageSuppliers")&&<div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>{setEditSup(sup);setSupForm({name:sup.name,phone:sup.phone,spec:sup.spec,unitPrice:sup.unitPrice||""});setShowAddSup(true);}} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:tp}}>{t.editSupplier}</button>
+                    <button onClick={()=>{setEditSup(sup);setSupForm({name:sup.name,phone:sup.phone,spec:sup.spec,unitPrice:sup.unitPrice??"",accountingSettings:{useSupplierRate:false,chargeExtras:false,extraLogoRate:"",...sup.accountingSettings}});setShowAddSup(true);}} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:tp}}>{t.editSupplier}</button>
                     <button onClick={()=>deleteSup(sup.id)} style={{background:"#FEF2F2",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:"#E05E5C"}}>🗑</button>
                   </div>}
                 </div>
@@ -2171,7 +2176,7 @@ export default function App(){
               return <div>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
                   <button onClick={()=>setSelectedAccSup(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
-                  <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>🏭 {selectedAccSup}</h2><button onClick={()=>{setAccTab("debts");setSupPaySupFilter(selectedAccSup);setSupPayMethodFilter("");setSupPayForm({supplier:selectedAccSup,amount:"",date:new Date().toISOString().slice(0,10),method:"Opening Debt",ref:"",note:""});setShowSupPayModal(true);}}>{rtl?"إضافة دين سابق":"Add previous debt"}</button>
+                  <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>🏭 {selectedAccSup}</h2>{can("manageSuppliers")&&s&&<button onClick={()=>{setEditSup(s);setSupForm({name:s.name,phone:s.phone,spec:s.spec,unitPrice:s.unitPrice??"",accountingSettings:{useSupplierRate:false,chargeExtras:false,extraLogoRate:"",...s.accountingSettings}});setShowAddSup(true);}}>{rtl?"إعدادات حساب المورد":"Supplier accounting settings"}</button>}<button onClick={()=>{setAccTab("debts");setSupPaySupFilter(selectedAccSup);setSupPayMethodFilter("");setSupPayForm({supplier:selectedAccSup,amount:"",date:new Date().toISOString().slice(0,10),method:"Opening Debt",ref:"",note:""});setShowSupPayModal(true);}}>{rtl?"إضافة دين سابق":"Add previous debt"}</button>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:20}}>
                   {[[rtl?"طلبات":"Orders",sOrders.length,tp],[rtl?"جاكيتات":"Jackets",sOrders.reduce((x,o)=>x+Number(o.jackets||0),0),tp],[rtl?"التكلفة المتوقعة":"Expected",fmtAED(expCost),"#202F4D"],[rtl?"الديون السابقة (صافي)":"Previous debts (net)",fmtAED(debt),tp],[rtl?"المدفوع":"Paid",fmtAED(paid),"#2D7A4F"],[rtl?"المتبقي":"Remaining",fmtAED(remaining),remaining>0?"#E05E5C":"#2D7A4F"]].map(([k,v,c])=>(
@@ -2195,7 +2200,7 @@ export default function App(){
                             <td style={{padding:"10px 14px"}}>{o.customer||"--"}</td>
                             <td style={{padding:"10px 14px",textAlign:rtl?"right":"left"}}>{o.jackets}</td>
                             <td style={{padding:"10px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
-                            <td style={{padding:"10px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(orderExpectedCostAED(o))}</td>
+                            <td style={{padding:"10px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(orderExpectedCostAED(o))}<div style={{fontSize:11,color:tm}}>{rtl?"منها الإكسترا: ":"Includes extras: "}{o.extras||0} × {fmtAED(orderSupplierCost(o).extraRate)} = {fmtAED(orderSupplierCost(o).extrasCost)}</div></td>
                             <td style={{padding:"10px 14px"}}><Badge status={o.status}/></td>
                           </tr>
                         ))}
@@ -2678,7 +2683,7 @@ export default function App(){
 
       {/* DUPLICATE WARNING MODAL */}
       {dupWarning&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setDupWarning(null)}>
-        <div style={{background:bgC,borderRadius:16,padding:28,width:420,maxWidth:"90vw",textAlign:"center"}}>
+        <div style={{background:bgC,borderRadius:16,padding:28,width:520,maxWidth:"90vw",maxHeight:"90vh",overflowY:"auto",textAlign:"center"}}>
           <div style={{fontSize:40,marginBottom:10}}>⚠️</div>
           <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:800,color:"#92400E"}}>{rtl?"يحتمل أن هذا الطلب مكرر":"This order might be a duplicate"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 14px"}}>{rtl?"يوجد طلب آخر بنفس رقم الهاتف ونفس المبلغ تم تسجيله اليوم:":"There's already an order today with the same phone number and amount:"}</p>
@@ -2764,7 +2769,7 @@ export default function App(){
 
       {/* PAYMENT MODAL */}
       {showPay&&payTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&closePaymentModal()}>
-        <div style={{background:bgC,borderRadius:16,padding:32,width:420,maxWidth:"90vw"}}>
+        <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"90vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>{t.paymentFor}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{payTarget.id} — {payTarget.customer||payTarget.phone}</p>
           <div style={{background:C.slateLight,borderRadius:10,padding:14,marginBottom:20,display:"flex",justifyContent:"space-between"}}>
@@ -2786,13 +2791,21 @@ export default function App(){
 
       {/* ADD/EDIT SUPPLIER */}
       {showAddSup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowAddSup(false),setEditSup(null))}>
-        <div style={{background:bgC,borderRadius:16,padding:32,width:420,maxWidth:"90vw"}}>
+        <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"90vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{editSup?t.editSupplier:t.addSupplier}</h2>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
             {[[t.supplierName,"name"],[t.supplierPhone,"phone"],[t.supplierSpec,"spec"]].map(([label,field])=>(
               <div key={field}><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{label}</label>
               <input value={supForm[field]} onChange={e=>setSupForm(p=>({...p,[field]:e.target.value}))} style={IS}/></div>
             ))}
+            <fieldset style={{border:"1px solid "+bc,borderRadius:10,padding:14}}>
+              <legend>{rtl?"إعدادات حساب المورد المتقدمة":"Advanced supplier accounting"}</legend>
+              <label><input type="checkbox" checked={!!supForm.accountingSettings?.useSupplierRate} onChange={e=>setSupForm(p=>({...p,accountingSettings:{...p.accountingSettings,useSupplierRate:e.target.checked}}))}/>{rtl?"استخدام سعر خاص للجاكيت بدل الأسعار العامة":"Use supplier jacket rate instead of general rates"}</label>
+              {supForm.accountingSettings?.useSupplierRate&&<label style={{display:"block",marginTop:10}}>{rtl?"سعر الجاكيت (AED)":"Jacket rate (AED)"}<input type="number" min="0" step="0.01" value={supForm.unitPrice} onChange={e=>setSupForm(p=>({...p,unitPrice:e.target.value}))} style={IS}/></label>}
+              <label style={{display:"block",marginTop:12}}><input type="checkbox" checked={!!supForm.accountingSettings?.chargeExtras} onChange={e=>setSupForm(p=>({...p,accountingSettings:{...p.accountingSettings,chargeExtras:e.target.checked}}))}/>{rtl?"إضافة تكلفة اللوقوهات الإضافية لحساب المورد":"Charge extra logos to supplier account"}</label>
+              {supForm.accountingSettings?.chargeExtras&&<label style={{display:"block",marginTop:10}}>{rtl?"تكلفة كل لوقو إضافي (AED)":"Cost per extra logo (AED)"}<input type="number" min="0" step="0.01" value={supForm.accountingSettings.extraLogoRate} onChange={e=>setSupForm(p=>({...p,accountingSettings:{...p.accountingSettings,extraLogoRate:e.target.value}}))} style={IS}/></label>}
+              <p style={{fontSize:12,color:tm}}>{rtl?"الإكسترا = عدد اللوقوهات الإضافية المسجل في الطلب × السعر. التعديل يعيد احتساب الطلبات الحالية؛ التقارير المحفوظة تبقى كما هي.":"Extras = recorded extra logo count × rate. Changes recalculate current orders; saved reports remain unchanged."}</p>
+            </fieldset>
           </div>
           <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowAddSup(false);setEditSup(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
