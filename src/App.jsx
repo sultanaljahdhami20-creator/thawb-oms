@@ -1,3 +1,6 @@
+import OrderRow from "./OrderRow";
+import { useUIEvent } from "./useUIEvent";
+import { Badge, Btn } from "./UIControls";
 import UIIcon from "./UIIcon";
 import "./appearance.css";
 import { supplierOrderCost, isSupplierDebt, supplierAccountTotals, supplierEntryLabel } from "./supplierAccounting";
@@ -1182,10 +1185,14 @@ export default function App(){
     w.document.close();
   };
 
+  const viewOrderRow=useUIEvent(o=>{setSelected(o);setPage("detail");});
+  const payOrderRow=useUIEvent(openPaymentModal);
+  const urgentOrderRow=useUIEvent(toggleUrgent);
+  const deleteOrderRow=useUIEvent(o=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);});
+  const selectedOrderIdSet=useMemo(()=>new Set(selectedOrderIds),[selectedOrderIds]);
+
   const dm=dark,bgP=dm?"#0F1629":C.bg,bgS=dm?"#0A0F1E":C.navyMid,bgC=dm?"#1A2744":C.white,tp=dm?"#F1F5F9":C.text,tm=dm?"#94A3B8":C.textMid,bc=dm?"#2A3F66":C.border;
   const IS={padding:"9px 12px",borderRadius:8,border:"1px solid "+bc,background:bgC,color:tp,fontSize:13,width:"100%",boxSizing:"border-box"};
-  const Btn=(props)=><button {...props} style={{border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13,...props.style}}/>;
-  const Badge=({status})=>{const s=sc(status);return <span className="ui-badge" style={{background:s.bg,color:s.color,padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{sl(status)}</span>;};
   const NI=(id,icon,label,hidden)=>hidden?null:(
     <button key={id} data-nav={id} aria-current={page===id?"page":undefined} onClick={()=>{setPage(id);setMobileNav(false);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:8,width:"100%",border:"none",cursor:"pointer",flexDirection:rtl?"row-reverse":"row",background:page===id?"rgba(224,94,92,0.18)":"transparent",color:page===id?"#E05E5C":"rgba(255,255,255,0.75)",fontWeight:page===id?700:500,fontSize:14,textAlign:rtl?"right":"left"}}>
       <span>{icon}</span>{label}
@@ -1267,7 +1274,7 @@ export default function App(){
 
         {/* DASHBOARD */}
         {page==="dashboard"&&can("dashboard")&&<div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:28}}>
+          <div className="ui-page-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:28}}>
             <div><h1 style={{fontSize:24,fontWeight:800,margin:0}}>{t.dashboard}</h1><p style={{margin:0,color:tm,fontSize:14}}>{rtl?"مرحباً،":"Welcome,"} {currentUser.name}</p></div>
             {can("orders")&&<button onClick={()=>setShowNew(true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 20px",fontWeight:700,cursor:"pointer"}}>{t.newOrder}</button>}
           </div>
@@ -1288,9 +1295,9 @@ export default function App(){
               <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <h3 style={{margin:"0 0 10px",fontSize:14,fontWeight:700}}>{t.recentOrders}</h3>
                 {[...orders].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(o=>(
-                  <div key={o.id} role="button" tabIndex={0} onClick={()=>{if(can("orders")){setSelected(o);setPage("detail");}}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
+                  <div key={o.id} className="ui-recent-row" role="button" tabIndex={0} onClick={()=>{if(can("orders")){setSelected(o);setPage("detail");}}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
                     <div><div style={{fontSize:13,fontWeight:600}}>{o.customer||o.phone}</div><div style={{fontSize:11,color:tm}}>{o.id}</div></div>
-                    <Badge status={o.status}/>
+                    <Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/>
                   </div>
                 ))}
               </div>
@@ -1307,7 +1314,7 @@ export default function App(){
 
         {/* ORDERS */}
         {page==="orders"&&<div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+          <div className="ui-page-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.allOrders}</h1>
             <div style={{display:"flex",gap:10}}>
               {warehouseOrders.length>0&&<button className="label-print-action" onClick={()=>openLabelPrint(warehouseOrders)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?`طباعة ليبلات المخزن (${warehouseOrders.length})`:`Print Warehouse Labels (${warehouseOrders.length})`}</button>}
@@ -1337,7 +1344,7 @@ export default function App(){
               <button onClick={()=>setSelectedOrderIds([])} style={{background:"transparent",border:"1px solid #6366F1",color:"#6366F1",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {rtl?"إلغاء التحديد":"Clear"}</button>
             </div>
           </div>}
-          <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+          <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -1345,32 +1352,13 @@ export default function App(){
                   {[t.orderNum,t.customer,t.phone,t.date,t.jackets,t.extrasShort,t.total,t.paid,t.balance,t.status,t.supplier,t.deliveryArea,t.deliveryPayment,t.actions].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {filtOrd.map((o,i)=>(
-                    <tr key={o.id} style={{borderTop:"1px solid "+bc,background:selectedOrderIds.includes(o.id)?"#EEF2FF":o.isUrgent?"#FFF7ED":i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
-                      <td style={{padding:"12px 14px"}}><input type="checkbox" checked={selectedOrderIds.includes(o.id)} onChange={e=>setSelectedOrderIds(p=>e.target.checked?[...p,o.id]:p.filter(x=>x!==o.id))} style={{width:16,height:16,cursor:"pointer"}}/></td>
-                      <td style={{padding:"12px 14px",fontWeight:700,color:"#E05E5C"}}>{o.isUrgent&&<span style={{marginLeft:4,marginRight:4}}>⚡</span>}{o.id}</td>
-                      <td style={{padding:"12px 14px",fontWeight:600}}>{o.customer||"--"}</td>
-                      <td style={{padding:"12px 14px",color:tm}}>{o.phone}</td>
-                      <td style={{padding:"12px 14px",color:tm}}>{o.date}</td>
-                      <td style={{padding:"12px 14px"}}>{o.jackets}</td>
-                      <td style={{padding:"12px 14px",color:tm}}>{o.extras||0}</td>
-                      <td style={{padding:"12px 14px",fontWeight:600}}>{fmt(o.total)}</td>
-                      <td style={{padding:"12px 14px",color:"#2D7A4F",fontWeight:600}}>{fmt(o.paid)}</td>
-                      <td style={{padding:"12px 14px",color:o.total-o.paid>0?"#E05E5C":"#2D7A4F",fontWeight:700}}>{fmt(o.total-o.paid)}</td>
-                      <td style={{padding:"12px 14px"}}><Badge status={o.status}/></td>
-                      <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.supplier||"--"}</td>
-                      <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.deliveryArea||"--"}</td>
-                      <td style={{padding:"12px 14px",fontSize:12,fontWeight:700,color:o.deliveryPaid===false?"#B45309":"#2D7A4F",whiteSpace:"nowrap"}}>{deliveryText(o)}</td>
-                      <td style={{padding:"12px 14px"}}>
-                        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                          <button onClick={()=>{setSelected(o);setPage("detail");}} style={{background:C.navyLight,color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:600}}>{t.view}</button>
-                          {can("payments")&&<button onClick={()=>openPaymentModal(o)} style={{background:C.greenLight,color:"#2D7A4F",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>{t.pay}</button>}
-                          {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"1px solid "+(o.isUrgent?"#F97316":bc),borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:12,fontWeight:700,color:o.isUrgent?"#F97316":tm}} title={o.isUrgent?(rtl?"إلغاء المستعجل":"Remove urgent"):(rtl?"تعليم مستعجل":"Mark urgent")}>⚡</button>}
-                          {can("deleteOrders")&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"none",borderRadius:6,padding:"5px 10px",cursor:"pointer",fontSize:11,fontWeight:700}}>🗑</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {filtOrd.map((o,i)=><OrderRow key={o.id} o={o} i={i}
+                    selected={selectedOrderIdSet.has(o.id)} bc={bc} tm={tm} t={t} rtl={rtl}
+                    label={sl(o.status)} badgeColor={sc(o.status).color} badgeBackground={sc(o.status).bg}
+                    deliveryLabel={deliveryText(o)} navyLight={C.navyLight} greenLight={C.greenLight} fmt={fmt}
+                    canPay={can("payments")} canEdit={can("orders")} canDelete={can("deleteOrders")}
+                    onView={viewOrderRow} onPay={payOrderRow} onUrgent={urgentOrderRow} onDelete={deleteOrderRow}
+                    onSelectionChange={setSelectedOrderIds}/>)}
                 </tbody>
               </table>
             </div>
@@ -1384,7 +1372,7 @@ export default function App(){
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24,flexWrap:"wrap"}}>
               <button onClick={()=>setPage("orders")} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {t.back}</button>
               <h1 style={{fontSize:22,fontWeight:800,margin:0,flex:1}}>{rtl?"الطلب":"Order"} {o.id}{o.isUrgent&&<span style={{marginRight:8,marginLeft:8,fontSize:18}}>⚡</span>}</h1>
-              <Badge status={o.status}/>
+              <Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/>
               {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"2px solid "+(o.isUrgent?"#F97316":bc),borderRadius:8,padding:"8px 16px",fontWeight:800,cursor:"pointer",color:o.isUrgent?"#F97316":tm,fontSize:13}}>
                 ⚡ {o.isUrgent?(rtl?"إلغاء المستعجل":"Remove Urgent"):(rtl?"تعليم مستعجل":"Mark Urgent")}
               </button>}
@@ -1514,7 +1502,7 @@ export default function App(){
 
         {/* SUPPLIERS */}
         {page==="suppliers"&&can("suppliers")&&<div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+          <div className="ui-page-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.suppliers}</h1>
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>setShowAssign(true)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {t.assignOrders}</button>
@@ -1552,11 +1540,11 @@ export default function App(){
                   {can("suppliers")&&<button onClick={()=>{setEditAssignedSup(sup);setEditAssignedSelected(supOrders.map(o=>o.id));setShowEditAssigned(true);}} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:tp}}>✏️ {rtl?"تعديل الطلبات":"Edit Orders"}</button>}
                 </div>
                 {act.length===0?<p style={{color:tm,fontSize:12}}>{t.noActiveOrders}</p>:act.map(o=>(
-                  <div key={o.id} role="button" tabIndex={0} onClick={()=>{setSelected(o);setPage("detail");}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
+                  <div key={o.id} className="ui-recent-row" role="button" tabIndex={0} onClick={()=>{setSelected(o);setPage("detail");}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
                     <span style={{fontWeight:600,fontSize:12,color:"#E05E5C"}}>{o.id}</span>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
                       <span style={{fontSize:11,color:tm}}>{o.customer||o.phone}</span>
-                      <Badge status={o.status}/>
+                      <Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/>
                     </div>
                   </div>
                 ))}
@@ -1570,7 +1558,7 @@ export default function App(){
 
         {/* REPORTS */}
         {page==="reports"&&can("reports")&&<div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+          <div className="ui-page-header" style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
             <h1 style={{fontSize:22,fontWeight:800,margin:0}}>{t.reportsTitle}</h1>
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
               <button onClick={()=>setShowCols(s=>!s)} style={{background:showCols?C.navyLight:bgC,color:showCols?"#fff":tp,border:"1px solid "+bc,borderRadius:8,padding:"9px 16px",cursor:"pointer",fontWeight:600,fontSize:13}}>🔧 {t.columns} ({aCols.length})</button>
@@ -1615,7 +1603,7 @@ export default function App(){
             ))}
           </div>
           <DeliverySummary summary={deliverySummary(rFilt,deliveryRate)} rtl={rtl} format={fmtOMR} background={bgC} border={bc} text={tp} muted={tm}/>
-          <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+          <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
             <div style={{padding:"13px 20px",borderBottom:"1px solid "+bc,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:14,fontWeight:700}}>{t.reportResults}</span>
               <span style={{fontSize:12,color:tm,background:C.slateLight,padding:"3px 10px",borderRadius:10}}>{rFilt.length} {t.ordersFound}</span>
@@ -1628,7 +1616,7 @@ export default function App(){
                   :rFilt.map((o,i)=>(
                     <tr key={o.id} onClick={()=>{setSelected(o);setPage("detail");}} style={{borderTop:"1px solid "+bc,background:i%2===0?"transparent":"rgba(0,0,0,0.01)",cursor:"pointer"}}>
                       {aCols.map(k=>{
-                        if(k==="status")return <td key={k} style={{padding:"11px 14px"}}><Badge status={o.status}/></td>;
+                        if(k==="status")return <td key={k} style={{padding:"11px 14px"}}><Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/></td>;
                         let st={padding:"11px 14px"};
                         if(k==="orderNum")st={...st,fontWeight:700,color:"#E05E5C"};
                         if(k==="paid")st={...st,color:"#2D7A4F",fontWeight:600};
@@ -1748,7 +1736,7 @@ export default function App(){
             </div>
 
             {/* جدول المصاريف */}
-            <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+            <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:C.slateLight}}>
                   {[rtl?"التاريخ":"Date",rtl?"التصنيف":"Category",rtl?"المبلغ (ر.ع)":"Amount (OMR)",rtl?"ملاحظة":"Note",rtl?"سجّل بواسطة":"By",""].map(h=>(
@@ -1897,7 +1885,7 @@ export default function App(){
 
             {/* ===== SUPPLIERS TAB ===== */}
             {accTab==="suppliers"&&!selectedAccSup&&<div>
-              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -1946,7 +1934,7 @@ export default function App(){
                     </div>
                   ))}
                 </div>
-                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                   <div style={{padding:"14px 16px",borderBottom:"1px solid "+bc,fontWeight:800,fontSize:14}}>{rtl?"الطلبات المسندة":"Assigned Orders"}</div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -1961,7 +1949,7 @@ export default function App(){
                             <td style={{padding:"10px 14px",textAlign:rtl?"right":"left"}}>{o.jackets}</td>
                             <td style={{padding:"10px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
                             <td style={{padding:"10px 14px",fontWeight:700,color:"#202F4D"}}>{fmtAED(orderExpectedCostAED(o))}<div style={{fontSize:11,color:tm}}>{rtl?"منها الإكسترا: ":"Includes extras: "}{o.extras||0} × {fmtAED(orderSupplierCost(o).extraRate)} = {fmtAED(orderSupplierCost(o).extrasCost)}</div></td>
-                            <td style={{padding:"10px 14px"}}><Badge status={o.status}/></td>
+                            <td style={{padding:"10px 14px"}}><Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/></td>
                           </tr>
                         ))}
                         {sOrders.length===0&&<tr><td colSpan={6} style={{padding:20,textAlign:"center",color:tm}}>{rtl?"لا توجد طلبات":"No orders"}</td></tr>}
@@ -1988,7 +1976,7 @@ export default function App(){
                 </div>
                 <button onClick={()=>{setSupPayForm({supplier:"",amount:"",date:new Date().toISOString().slice(0,10),method:accTab==="debts"?"Opening Debt":"",ref:"",note:""});setShowSupPayModal(true);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>+ {accTab==="debts"?(rtl?"إضافة دين سابق":"Add previous debt"):(rtl?"دفعة مورد":"Add Payment")}</button>
               </div>
-              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -2018,7 +2006,7 @@ export default function App(){
               <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
                 <button onClick={()=>{setReportBalance("");setShowGenReport(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>📄 {rtl?"إنشاء تقرير مالي":"Generate Report"}</button>
               </div>
-              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -2055,7 +2043,7 @@ export default function App(){
                   <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>📄 {rtl?"تقرير مالي":"Financial Report"} — {new Date(r.created_at).toLocaleDateString(rtl?"ar-OM":"en-GB")}</h2>
                 </div>
                 <div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:8,padding:"8px 14px",marginBottom:16,fontSize:12,color:"#92400E"}}>📸 {rtl?"لقطة تاريخية — القيم ثابتة كما كانت وقت الإنشاء. سعر الصرف المستخدم:":"Historical snapshot — values frozen. Rate used:"} <b>1 OMR = {rate} AED</b></div>
-                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden",marginBottom:16}}>
+                <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden",marginBottom:16}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
                       {[rtl?"البند المالي":"Item",rtl?"ريال (OMR)":"OMR",rtl?"درهم (AED)":"AED"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
@@ -2097,7 +2085,7 @@ export default function App(){
                   ))}
                 </div>
                 {!snapshotDelivery&&<p style={{fontSize:12,color:tm}}>{rtl?"هذا التقرير سابق لإضافة حسابات التوصيل؛ لم تُعدّل قيمه التاريخية.":"This report predates delivery accounting; historical values are unchanged."}</p>}
-                {breakdown.length>0&&<div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                {breakdown.length>0&&<div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                   <div style={{padding:"14px 16px",borderBottom:"1px solid "+bc,fontWeight:800,fontSize:14}}>{rtl?"تفصيل الموردين":"Supplier Breakdown"}</div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -2555,7 +2543,7 @@ export default function App(){
                   <input type="checkbox" checked={assignSelected.includes(o.id)} onChange={e=>setAssignSelected(p=>e.target.checked?[...p,o.id]:p.filter(x=>x!==o.id))} style={{width:16,height:16}}/>
                   <span style={{fontWeight:700,color:"#E05E5C",minWidth:80}}>{o.id}</span>
                   <span style={{fontSize:13}}>{o.customer||o.phone}</span>
-                  <Badge status={o.status}/>
+                  <Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/>
                   {o.supplier&&<span style={{fontSize:11,color:tm,marginLeft:"auto"}}>→ {o.supplier}</span>}
                 </label>
               ))}
@@ -2630,7 +2618,7 @@ export default function App(){
                 <span style={{fontWeight:700,color:"#E05E5C",minWidth:90,fontSize:12}}>{o.id}</span>
                 <span style={{fontSize:13,flex:1}}>{o.customer||o.phone}</span>
                 <span style={{fontSize:12}}>{o.jackets} {rtl?"جاكيت":"jkts"}</span>
-                <Badge status={o.status}/>
+                <Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/>
                 {isOtherSup&&<span style={{fontSize:10,color:tm,whiteSpace:"nowrap"}}>→ {o.supplier}</span>}
               </label>;
             })}
