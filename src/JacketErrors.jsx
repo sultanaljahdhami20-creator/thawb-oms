@@ -1,3 +1,4 @@
+import { handleEnterSubmit } from "./keyboardSubmit";
 import { useState, useRef, useEffect } from 'react';
 import { TABS, TYPES, STAGES, array, reportRows, filterRows, photos, persistReport, insertReport, reportArrays, workflow } from './jacketWorkflow';
 import './jacketErrors.css';
@@ -41,6 +42,7 @@ function Dialog({
     return () => previous?.focus();
   }, []);
   function keyboard(event) {
+    handleEnterSubmit(event);
     if (event.key === 'Escape' && !busy && !imageBusy) {
       event.stopPropagation();
       close();
@@ -57,7 +59,7 @@ function Dialog({
       first?.focus();
     }
   }
-  return <div className="je-overlay"><section ref={dialog} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-label={title} className="je-modal"><header><h2>{title}</h2><button disabled={busy || imageBusy} onClick={close}>×</button></header><fieldset disabled={busy||imageBusy} style={{border:0,padding:0,margin:0,minWidth:0}}>{body}</fieldset>{error && <p role="alert" className="je-error">{error}</p>}<footer><button disabled={busy || imageBusy} onClick={close}>{text('إلغاء', 'Cancel')}</button>{action && <button className="je-primary" disabled={busy || imageBusy} onClick={action}>{busy ? text('جارٍ الحفظ…', 'Saving…') : text('حفظ', 'Save')}</button>}</footer></section></div>;
+  return <div className="je-overlay"><section data-enter-scope="" ref={dialog} onKeyDown={keyboard} role="dialog" aria-modal="true" aria-label={title} className="je-modal"><header><h2>{title}</h2><button disabled={busy || imageBusy} onClick={close}>×</button></header><fieldset disabled={busy||imageBusy} style={{border:0,padding:0,margin:0,minWidth:0}}>{body}</fieldset>{error && <p role="alert" className="je-error">{error}</p>}<footer><button disabled={busy || imageBusy} onClick={close}>{text('إلغاء', 'Cancel')}</button>{action && <button data-enter-submit="" aria-keyshortcuts="Enter" className="je-primary" disabled={busy || imageBusy} onClick={action}>{busy ? text('جارٍ الحفظ…', 'Saving…') : text('حفظ', 'Save')}</button>}</footer></section></div>;
 }
 const empty = {
   kind: '',

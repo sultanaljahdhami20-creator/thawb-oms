@@ -1,3 +1,5 @@
+import UIIcon from "./UIIcon";
+import "./appearance.css";
 import { supplierOrderCost, isSupplierDebt, supplierAccountTotals, supplierEntryLabel } from "./supplierAccounting";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
@@ -15,6 +17,7 @@ import {updateRecord,saveJacketCorrection,saveJacketNoteEdit} from "./recordEdit
 import PermissionEditor from "./PermissionEditor";
 import { PERMISSIONS, hasPermission, canManageUser, canSaveUser, initialPage, persistUser } from "./permissions";
 import { createOrderWithPayment } from "./orderCreation";
+import { handleEnterSubmit } from "./keyboardSubmit";
 
 const C={navy:"#1A2744",navyMid:"#202F4D",navyLight:"#2A3F66",coral:"#E05E5C",coralLight:"#F5E8E8",green:"#2D7A4F",greenLight:"#E6F4EC",slate:"#64748B",slateLight:"#F1F5F9",white:"#FFFFFF",bg:"#F4F6FA",border:"#E2E8F0",text:"#1E293B",textMid:"#475569"};
 const SC=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#EC4899",bg:"#FDF2F8"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#3B82F6",bg:"#EFF6FF"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#7C3AED",bg:"#F5F3FF"},{color:"#DC2626",bg:"#FEF2F2"}];
@@ -1182,9 +1185,9 @@ export default function App(){
   const dm=dark,bgP=dm?"#0F1629":C.bg,bgS=dm?"#0A0F1E":C.navyMid,bgC=dm?"#1A2744":C.white,tp=dm?"#F1F5F9":C.text,tm=dm?"#94A3B8":C.textMid,bc=dm?"#2A3F66":C.border;
   const IS={padding:"9px 12px",borderRadius:8,border:"1px solid "+bc,background:bgC,color:tp,fontSize:13,width:"100%",boxSizing:"border-box"};
   const Btn=(props)=><button {...props} style={{border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13,...props.style}}/>;
-  const Badge=({status})=>{const s=sc(status);return <span style={{background:s.bg,color:s.color,padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{sl(status)}</span>;};
+  const Badge=({status})=>{const s=sc(status);return <span className="ui-badge" style={{background:s.bg,color:s.color,padding:"2px 10px",borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{sl(status)}</span>;};
   const NI=(id,icon,label,hidden)=>hidden?null:(
-    <button key={id} onClick={()=>{setPage(id);setMobileNav(false);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:8,width:"100%",border:"none",cursor:"pointer",flexDirection:rtl?"row-reverse":"row",background:page===id?"rgba(224,94,92,0.18)":"transparent",color:page===id?"#E05E5C":"rgba(255,255,255,0.75)",fontWeight:page===id?700:500,fontSize:14,textAlign:rtl?"right":"left"}}>
+    <button key={id} data-nav={id} aria-current={page===id?"page":undefined} onClick={()=>{setPage(id);setMobileNav(false);}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",borderRadius:8,width:"100%",border:"none",cursor:"pointer",flexDirection:rtl?"row-reverse":"row",background:page===id?"rgba(224,94,92,0.18)":"transparent",color:page===id?"#E05E5C":"rgba(255,255,255,0.75)",fontWeight:page===id?700:500,fontSize:14,textAlign:rtl?"right":"left"}}>
       <span>{icon}</span>{label}
     </button>
   );
@@ -1207,7 +1210,7 @@ export default function App(){
       <div className="login-screen" style={{minHeight:"100dvh",background:"#0F1629",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,system-ui,sans-serif"}}>
         <div style={{background:"#1A2744",borderRadius:16,padding:40,width:360,maxWidth:"90vw",border:"1px solid #2A3F66"}}>
           <div style={{textAlign:"center",marginBottom:28}}>
-            <div style={{fontSize:32,fontWeight:900,color:"#E05E5C",letterSpacing:2}}>THAWB</div>
+            <span className="thawb-brand-logo thawb-brand-logo--login"><img src="/thawb-logo.png" alt="THAWB logo" width="104" height="104" decoding="async"/></span>
             <div style={{fontSize:13,color:"#94A3B8",marginTop:4}}>Order Management System</div>
           </div>
           {loginErr&&<div style={{background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#E05E5C"}}>{loginErr}</div>}
@@ -1229,11 +1232,11 @@ export default function App(){
   }
 
   return(
-    <div className="app-layout" dir={dir} style={{display:"flex",height:"100dvh",fontFamily:"Inter,system-ui,sans-serif",background:bgP,color:tp,direction:dir}}>
+    <div className="app-layout" data-theme="clear" data-dark={dark} onKeyDown={handleEnterSubmit} dir={dir} style={{display:"flex",height:"100dvh",fontFamily:"Inter,system-ui,sans-serif",background:bgP,color:tp,direction:dir}}>
       {mobileNav&&<div className="mobile-overlay" onClick={()=>setMobileNav(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:40}}/>}
       <aside className={`app-sidebar${mobileNav?" sidebar-open":""}`} style={{width:220,background:bgS,display:"flex",flexDirection:"column",padding:"20px 12px",gap:4,flexShrink:0,order:rtl?1:0}}>
         <div style={{padding:"8px 4px 24px",borderBottom:"1px solid rgba(255,255,255,0.1)",marginBottom:8}}>
-          <div style={{fontSize:18,fontWeight:800,color:"#E05E5C"}}>{t.brand}</div>
+          <span className="thawb-brand-logo"><img src="/thawb-logo.png" alt={rtl?"شعار ثوب":"THAWB logo"} width="88" height="88" decoding="async"/></span>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>{t.brandSub}</div>
         </div>
         {NI("dashboard","📊",t.dashboard,!can("dashboard"))}
@@ -1270,22 +1273,22 @@ export default function App(){
           </div>
           <div className="stats-row" style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:24}}>
             {[{l:t.totalOrders,v:orders.length,i:"📦",c:"#202F4D"},...(can("financialSummary")?[{l:t.totalSales,v:fmt(totSales),i:"💰",c:"#202F4D"},{l:t.collected,v:fmt(totPaid),i:"✅",c:"#2D7A4F"},{l:t.outstanding,v:fmt(totSales-totPaid),i:"⏳",c:"#E05E5C"}]:[])].map(s=>(
-              <div key={s.l} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:"20px 24px",flex:1,minWidth:150}}>
-                <div style={{fontSize:12,color:C.slate,fontWeight:600,marginBottom:8}}>{s.i} {s.l}</div>
-                <div style={{fontSize:26,fontWeight:800,color:s.c}}>{s.v}</div>
+              <div key={s.l} className="ui-stat" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:"20px 24px",flex:1,minWidth:150}}>
+                <div className="ui-stat-label"><span className="ui-stat-icon"><UIIcon name={s.i==="📦"?"orders":s.i==="💰"?"accounts":s.i==="✅"?"reports":"refunds"}/></span><span>{s.l}</span></div>
+                <div style={{fontSize:26,fontWeight:800,color:s.c}}><bdi>{s.v}</bdi></div><span className="ui-stat-stitch" aria-hidden="true"/>
               </div>
             ))}
           </div>
           <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:24}}>
-            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+            <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
               <h3 style={{margin:"0 0 14px",fontSize:14,fontWeight:700}}>{t.ordersByStatus}</h3>
-              {[...Array(13)].map((_,i)=>{const cnt=orders.filter(o=>o.status===i+1).length;if(!cnt)return null;const s=sc(i+1);return <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+bc}}><span style={{fontSize:12,color:s.color,fontWeight:600}}>{t.statuses[i]}</span><span style={{background:s.bg,color:s.color,borderRadius:12,padding:"2px 10px",fontSize:12,fontWeight:700}}>{cnt}</span></div>;})}
+              {[...Array(13)].map((_,i)=>{const cnt=orders.filter(o=>o.status===i+1).length;if(!cnt)return null;const s=sc(i+1);return <div key={i} className="ui-status-row" style={{"--share":(cnt/Math.max(1,orders.length)*100)+"%","--status-color":s.color,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:"1px solid "+bc}}><span style={{fontSize:12,color:s.color,fontWeight:600}}>{t.statuses[i]}</span><span style={{background:s.bg,color:s.color,borderRadius:12,padding:"2px 10px",fontSize:12,fontWeight:700}}>{cnt}</span></div>;})}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:14}}>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <h3 style={{margin:"0 0 10px",fontSize:14,fontWeight:700}}>{t.recentOrders}</h3>
                 {[...orders].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(o=>(
-                  <div key={o.id} onClick={()=>{if(can("orders")){setSelected(o);setPage("detail");}}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
+                  <div key={o.id} role="button" tabIndex={0} onClick={()=>{if(can("orders")){setSelected(o);setPage("detail");}}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
                     <div><div style={{fontSize:13,fontWeight:600}}>{o.customer||o.phone}</div><div style={{fontSize:11,color:tm}}>{o.id}</div></div>
                     <Badge status={o.status}/>
                   </div>
@@ -1293,7 +1296,7 @@ export default function App(){
               </div>
             </div>
           </div>
-          <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+          <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
             <h3 style={{margin:"0 0 14px",fontSize:14,fontWeight:700}}>{t.supplierWorkload}</h3>
             <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
               {suppliers.map(s=>{const a=orders.filter(o=>o.supplier===s.name&&o.status!==12).length;return <div key={s.id} style={{flex:1,minWidth:120,background:C.slateLight,borderRadius:10,padding:"14px 16px"}}><div style={{fontSize:13,fontWeight:700,marginBottom:4}}>{s.name}</div><div style={{fontSize:22,fontWeight:800,color:"#202F4D"}}>{a}</div><div style={{fontSize:11,color:C.slate}}>{t.activeOrders}</div></div>;})}
@@ -1334,7 +1337,7 @@ export default function App(){
               <button onClick={()=>setSelectedOrderIds([])} style={{background:"transparent",border:"1px solid #6366F1",color:"#6366F1",borderRadius:6,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>✕ {rtl?"إلغاء التحديد":"Clear"}</button>
             </div>
           </div>}
-          <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+          <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -1394,7 +1397,7 @@ export default function App(){
               {can("renumberOrders")&&<button onClick={()=>{const info=extractOrderNum(o.id);setRenumberTarget(o);setRenumberValue(info?String(info.numVal):"");setShowRenumber(true);}} style={{background:"#FFF7ED",color:"#92400E",border:"1px solid #FDE68A",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔢 {rtl?"تعديل الرقم":"Renumber"}</button>}
               {can("deleteOrders")&&<button onClick={()=>{setDeleteOrderTarget(o);setShowDeleteOrder(true);}} style={{background:"#FEF2F2",color:"#E05E5C",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🗑 {t.deleteOrder}</button>}
             </div>
-            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20,overflowX:"auto"}}>
+            <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20,overflowX:"auto"}}>
               <h3 style={{margin:"0 0 14px",fontSize:13,fontWeight:700}}>{t.productionPipeline}</h3>
               <div style={{display:"flex",gap:0,alignItems:"center"}}>
                 {t.statuses.map((sl2,i)=>{
@@ -1410,7 +1413,7 @@ export default function App(){
               </div>
             </div>
             <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}}>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>👤 {t.customerInfo}</h3>
                 {[[t.name,o.customer||"--"],[t.phone,o.phone],[t.orderDate,o.date],[t.deliveryArea,o.deliveryArea||"--"],[t.deliveryPayment,deliveryText(o)]].map(([k,v])=>(
                   <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
@@ -1418,7 +1421,7 @@ export default function App(){
                   </div>
                 ))}
               </div>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>💰 {t.financialSummary}</h3>
                 {[[t.jackets,o.jackets],[t.extras,o.extras||0],[rtl?"نوع الطلب":"Order Type",o.orderType?(rtl?ORDER_TYPES_AR[ORDER_TYPES_EN.indexOf(o.orderType)]:o.orderType):(rtl?"غير محدد":"Not set")],[t.total,fmt(o.total)],[t.paid,fmt(o.paid)]].map(([k,v])=>(
                   <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
@@ -1454,14 +1457,14 @@ export default function App(){
                 {can("payments")&&<button onClick={()=>openPaymentModal(o)} style={{marginTop:14,width:"100%",background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:700,cursor:"pointer"}}>{t.recordPayment}</button>}
               </div>
             </div>
-            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+            <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
               <h3 style={{margin:"0 0 14px",fontSize:13,fontWeight:700}}>💳 {t.paymentHistory}</h3>
               {o.payments.length===0?<p style={{color:tm,fontSize:13}}>{t.noPayments}</p>:
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:C.slateLight}}>{["#",t.date,t.total,t.refNumber,t.recordedBy,t.notes,...(can("editPayments")?[rtl?"إجراءات":"Actions"]:[])].map(h=><th key={h} style={{padding:"8px 12px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:C.slate}}>{h}</th>)}</tr></thead>
                 <tbody>
                   {o.payments.map((p,i)=>(
-                    <tr key={i} style={{borderTop:"1px solid "+bc}}>
+                    <tr data-enter-scope={editPayIdx===i?"":undefined} key={i} style={{borderTop:"1px solid "+bc}}>
                       <td style={{padding:"8px 12px",color:tm}}>{i+1}</td>
                       <td style={{padding:"8px 12px"}}>
                         {editPayIdx===i?<input type="date" value={editPayForm.date} onChange={e=>setEditPayForm(f=>({...f,date:e.target.value}))} style={{...IS,padding:"4px 8px",fontSize:12}}/>:p.date}
@@ -1475,7 +1478,7 @@ export default function App(){
                       {can("editPayments")&&<td style={{padding:"8px 12px"}}>
                         {editPayIdx===i?
                           <div style={{display:"flex",gap:4}}>
-                            <button onClick={()=>editPayment(o.id,i,Number(editPayForm.amount),editPayForm.date)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>✓</button>
+                            <button data-enter-submit="" aria-keyshortcuts="Enter" aria-label={rtl?"حفظ الدفعة":"Save payment"} onClick={()=>editPayment(o.id,i,Number(editPayForm.amount),editPayForm.date)} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11,fontWeight:700}}>✓</button>
                             <button onClick={()=>setEditPayIdx(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:11,color:tm}}>✕</button>
                           </div>:
                           <div style={{display:"flex",gap:4}}>
@@ -1493,7 +1496,7 @@ export default function App(){
                 </tbody>
               </table>}
             </div>
-            {(o.history||[]).length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginTop:16}}>
+            {(o.history||[]).length>0&&<div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginTop:16}}>
               <h3 style={{margin:"0 0 14px",fontSize:13,fontWeight:700}}>📝 {rtl?"سجل التعديلات":"Edit History"}</h3>
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 {[{date:o.date,type:"create",by:o.payments[0]?.by||"Admin",changes:rtl?"تم إنشاء الطلب":"Order created"},...(o.history||[])].map((h,i)=>(
@@ -1518,7 +1521,7 @@ export default function App(){
               {can("manageSuppliers")&&<button onClick={()=>{setEditSup(null);setSupForm({name:"",phone:"",spec:"",unitPrice:"",accountingSettings:{useSupplierRate:false,chargeExtras:false,extraLogoRate:""}});setShowAddSup(true);}} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontWeight:700,cursor:"pointer",fontSize:13}}>{t.addSupplier}</button>}
             </div>
           </div>
-          {suppliers.length===0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}>{t.noSuppliersYet}</div>}
+          {suppliers.length===0&&<div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}>{t.noSuppliersYet}</div>}
           <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
             {suppliers.map(sup=>{
               const supOrders=orders.filter(o=>o.supplier===sup.name);
@@ -1549,7 +1552,7 @@ export default function App(){
                   {can("suppliers")&&<button onClick={()=>{setEditAssignedSup(sup);setEditAssignedSelected(supOrders.map(o=>o.id));setShowEditAssigned(true);}} style={{background:C.slateLight,border:"none",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:11,fontWeight:600,color:tp}}>✏️ {rtl?"تعديل الطلبات":"Edit Orders"}</button>}
                 </div>
                 {act.length===0?<p style={{color:tm,fontSize:12}}>{t.noActiveOrders}</p>:act.map(o=>(
-                  <div key={o.id} onClick={()=>{setSelected(o);setPage("detail");}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
+                  <div key={o.id} role="button" tabIndex={0} onClick={()=>{setSelected(o);setPage("detail");}} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid "+bc,cursor:"pointer"}}>
                     <span style={{fontWeight:600,fontSize:12,color:"#E05E5C"}}>{o.id}</span>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
                       <span style={{fontSize:11,color:tm}}>{o.customer||o.phone}</span>
@@ -1575,7 +1578,7 @@ export default function App(){
               <button onClick={()=>openPrint(rFilt,t.reportsTitle,true)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"9px 16px",fontWeight:700,cursor:"pointer",fontSize:13}}>🖨️ PDF</button>
             </div>
           </div>
-          <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:16}}>
+          <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:16}}>
             <div style={{fontSize:13,fontWeight:700,marginBottom:12,color:tm}}>🔍 {rtl?"الفلاتر":"Filters"}</div>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
               {[[t.dateFrom,rFrom,setRFrom,"date"],[t.dateTo,rTo,setRTo,"date"]].map(([l,v,s,tp2])=>(
@@ -1612,7 +1615,7 @@ export default function App(){
             ))}
           </div>
           <DeliverySummary summary={deliverySummary(rFilt,deliveryRate)} rtl={rtl} format={fmtOMR} background={bgC} border={bc} text={tp} muted={tm}/>
-          <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+          <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
             <div style={{padding:"13px 20px",borderBottom:"1px solid "+bc,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:14,fontWeight:700}}>{t.reportResults}</span>
               <span style={{fontSize:12,color:tm,background:C.slateLight,padding:"3px 10px",borderRadius:10}}>{rFilt.length} {t.ordersFound}</span>
@@ -1720,7 +1723,7 @@ export default function App(){
 
             {/* بطاقات الملخص */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:24}}>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <div style={{fontSize:12,color:tm,marginBottom:6}}>{rtl?"إجمالي المصاريف":"Total Expenses"}</div>
                 <div style={{fontSize:24,fontWeight:900,color:"#E05E5C"}}>{fmt(totAll)}</div>
               </div>
@@ -1733,7 +1736,7 @@ export default function App(){
             </div>
 
             {/* فلاتر */}
-            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:16,marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+            <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:16,marginBottom:16,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
               <select value={expCatFilter} onChange={e=>setExpCatFilter(e.target.value)} style={{...IS,width:"auto"}}>
                 <option value="">{rtl?"جميع التصنيفات":"All Categories"}</option>
                 {EXPENSE_CATS_EN.map((cat,i)=><option key={i} value={cat}>{rtl?EXPENSE_CATS_AR[i]:cat}</option>)}
@@ -1745,7 +1748,7 @@ export default function App(){
             </div>
 
             {/* جدول المصاريف */}
-            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+            <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead><tr style={{background:C.slateLight}}>
                   {[rtl?"التاريخ":"Date",rtl?"التصنيف":"Category",rtl?"المبلغ (ر.ع)":"Amount (OMR)",rtl?"ملاحظة":"Note",rtl?"سجّل بواسطة":"By",""].map(h=>(
@@ -1770,7 +1773,7 @@ export default function App(){
             </div>
 
             {/* نافذة مصروف جديد */}
-            {showNewExp&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowNewExp(false)}>
+            {showNewExp&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowNewExp(false)}>
               <div style={{background:bgC,borderRadius:16,padding:32,width:460,maxWidth:"95vw"}}>
                 <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>💸 {rtl?"مصروف جديد":"New Expense"}</h2>
                 <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -1792,7 +1795,7 @@ export default function App(){
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowNewExp(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                  <button onClick={saveExpense} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ المصروف":"Save Expense"}</button>
+                  <button data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveExpense} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ المصروف":"Save Expense"}</button>
                 </div>
               </div>
             </div>}
@@ -1823,35 +1826,35 @@ export default function App(){
             {/* ===== OVERVIEW TAB ===== */}
             {accTab==="overview"&&<div>
               <DeliverySummary summary={delivery} rtl={rtl} format={fmtOMR} background={bgC} border={bc} text={tp} muted={tm}/>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20}}><h3 style={{margin:"0 0 8px",fontSize:15}}>{rtl?"صافي الربح المتوقع":"Expected net profit"}</h3><strong style={{fontSize:25}}>{fmtOMR(netProfitOMR)}</strong><p style={{fontSize:12,color:tm,marginBottom:0}}>{rtl?"المبيعات − تكلفة الموردين − المصاريف − التعويضات المعتمدة والمدفوعة − إجمالي تكلفة التوصيل. تكلفة التوصيل تُخصم مرة واحدة.":"Sales − supplier costs − expenses − approved and paid refunds − total delivery cost. Delivery is deducted once."}</p></div>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20}}><h3 style={{margin:"0 0 8px",fontSize:15}}>{rtl?"صافي الربح المتوقع":"Expected net profit"}</h3><strong style={{fontSize:25}}>{fmtOMR(netProfitOMR)}</strong><p style={{fontSize:12,color:tm,marginBottom:0}}>{rtl?"المبيعات − تكلفة الموردين − المصاريف − التعويضات المعتمدة والمدفوعة − إجمالي تكلفة التوصيل. تكلفة التوصيل تُخصم مرة واحدة.":"Sales − supplier costs − expenses − approved and paid refunds − total delivery cost. Delivery is deducted once."}</p></div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14,marginBottom:20}}>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <div style={{fontSize:12,color:tm,marginBottom:6}}>📦 {rtl?"إجمالي الجاكيتات":"Total Jackets"}</div>
                   <div style={{fontSize:26,fontWeight:900,color:tp}}>{orders.reduce((s,o)=>s+Number(o.jackets||0),0)}</div>
                   <div style={{fontSize:11,color:tm}}>{orders.length} {rtl?"طلب":"orders"}</div>
                 </div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <div style={{fontSize:12,color:tm,marginBottom:6}}>💰 {rtl?"التكلفة المتوقعة للموردين":"Expected Supplier Cost"}</div>
                   <div style={{fontSize:24,fontWeight:900,color:"#202F4D"}}>{fmtAED(totalExpectedCostAED)}</div>
                   <div style={{fontSize:11,color:tm}}>≈ {fmtOMR(totalExpectedCostAED/RATE)}</div>
                 </div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <div style={{fontSize:12,color:tm,marginBottom:6}}>✅ {rtl?"المدفوع للموردين":"Paid to Suppliers"}</div>
                   <div style={{fontSize:24,fontWeight:900,color:"#2D7A4F"}}>{fmtAED(totalPaidToSuppliersAED)}</div>
                   <div style={{fontSize:11,color:tm}}>≈ {fmtOMR(totalPaidToSuppliersAED/RATE)}</div>
                 </div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <div style={{fontSize:12,color:tm,marginBottom:6}}>⏳ {rtl?"المتبقي للموردين":"Expected Remaining"}</div>
                   <div style={{fontSize:24,fontWeight:900,color:"#E05E5C"}}>{fmtAED(expectedRemainingAED)}</div><div style={{fontSize:11,color:tm}}>{rtl?"يشمل صافي الديون السابقة: ":"Includes net previous debts: "}{fmtAED(totalSupplierDebtAED)}</div>
                   <div style={{fontSize:11,color:tm}}>≈ {fmtOMR(expectedRemainingAED/RATE)}</div>
                 </div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                   <div style={{fontSize:12,color:tm,marginBottom:6}}>👥 {rtl?"مستحقات العملاء (لنا)":"Customer Outstanding"}</div>
                   <div style={{fontSize:24,fontWeight:900,color:"#F59E0B"}}>{fmtOMR(customerOutstandingOMR)}</div>
                   <div style={{fontSize:11,color:tm}}>≈ {fmtAED(toAED(customerOutstandingOMR))}</div>
                 </div>
               </div>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <h3 style={{margin:0,fontSize:14,fontWeight:800}}>🏷️ {rtl?"أسعار التكلفة حسب النوع (بالدرهم لكل جاكيت)":"Type Costs (AED per jacket)"}</h3>
                   <button onClick={()=>{setCostsForm({...DEFAULT_TYPE_COSTS,...typeCosts});setShowCostsEdit(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",fontSize:12}}>✏️ {rtl?"تعديل الأسعار":"Edit Costs"}</button>
@@ -1880,9 +1883,9 @@ export default function App(){
 
             {accTab==="delivery"&&<div>
               <DeliverySummary summary={delivery} rtl={rtl} format={fmtOMR} background={bgC} border={bc} text={tp} muted={tm}/>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20,marginBottom:20}}>
                 <label htmlFor="delivery-rate" style={{display:"block",fontWeight:700,marginBottom:8}}>{rtl?"سعر التوصيل لكل طلب (ر.ع)":"Delivery rate per order (OMR)"}</label>
-                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><input id="delivery-rate" type="number" min="0" step="0.001" value={deliveryRateInput} onChange={e=>setDeliveryRateInput(e.target.value)} style={{...IS,maxWidth:220}}/><button disabled={savingDeliveryRate} onClick={saveDeliveryRate} style={{background:"#202F4D",color:"#fff",border:0,borderRadius:8,padding:"10px 20px",cursor:"pointer"}}>{savingDeliveryRate?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"حفظ السعر":"Save rate")}</button></div>
+                <div data-enter-scope="" style={{display:"flex",gap:10,flexWrap:"wrap"}}><input id="delivery-rate" type="number" min="0" step="0.001" value={deliveryRateInput} onChange={e=>setDeliveryRateInput(e.target.value)} style={{...IS,maxWidth:220}}/><button disabled={savingDeliveryRate} data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveDeliveryRate} style={{background:"#202F4D",color:"#fff",border:0,borderRadius:8,padding:"10px 20px",cursor:"pointer"}}>{savingDeliveryRate?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"حفظ السعر":"Save rate")}</button></div>
                 <p style={{fontSize:12,color:tm}}>{rtl?"الافتراضي ريالان. تغيير السعر يعيد حساب الطلبات المشمولة الحالية؛ التقارير المحفوظة تبقى ثابتة.":"Default: 2 OMR. Changing the rate recalculates all currently included orders; saved reports remain unchanged."}</p>
               </div>
               <h3 style={{fontSize:15}}>{rtl?"طلبات متبقية للتوصيل":"Orders awaiting delivery"} ({delivery.remainingCount})</h3>
@@ -1894,7 +1897,7 @@ export default function App(){
 
             {/* ===== SUPPLIERS TAB ===== */}
             {accTab==="suppliers"&&!selectedAccSup&&<div>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -1943,7 +1946,7 @@ export default function App(){
                     </div>
                   ))}
                 </div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                   <div style={{padding:"14px 16px",borderBottom:"1px solid "+bc,fontWeight:800,fontSize:14}}>{rtl?"الطلبات المسندة":"Assigned Orders"}</div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -1985,7 +1988,7 @@ export default function App(){
                 </div>
                 <button onClick={()=>{setSupPayForm({supplier:"",amount:"",date:new Date().toISOString().slice(0,10),method:accTab==="debts"?"Opening Debt":"",ref:"",note:""});setShowSupPayModal(true);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>+ {accTab==="debts"?(rtl?"إضافة دين سابق":"Add previous debt"):(rtl?"دفعة مورد":"Add Payment")}</button>
               </div>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -2015,7 +2018,7 @@ export default function App(){
               <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
                 <button onClick={()=>{setReportBalance("");setShowGenReport(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer",fontSize:14}}>📄 {rtl?"إنشاء تقرير مالي":"Generate Report"}</button>
               </div>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
@@ -2052,7 +2055,7 @@ export default function App(){
                   <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>📄 {rtl?"تقرير مالي":"Financial Report"} — {new Date(r.created_at).toLocaleDateString(rtl?"ar-OM":"en-GB")}</h2>
                 </div>
                 <div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:8,padding:"8px 14px",marginBottom:16,fontSize:12,color:"#92400E"}}>📸 {rtl?"لقطة تاريخية — القيم ثابتة كما كانت وقت الإنشاء. سعر الصرف المستخدم:":"Historical snapshot — values frozen. Rate used:"} <b>1 OMR = {rate} AED</b></div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden",marginBottom:16}}>
+                <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden",marginBottom:16}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                     <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
                       {[rtl?"البند المالي":"Item",rtl?"ريال (OMR)":"OMR",rtl?"درهم (AED)":"AED"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:rtl?"right":"left",fontWeight:700,fontSize:11,color:tm}}>{h}</th>)}
@@ -2094,7 +2097,7 @@ export default function App(){
                   ))}
                 </div>
                 {!snapshotDelivery&&<p style={{fontSize:12,color:tm}}>{rtl?"هذا التقرير سابق لإضافة حسابات التوصيل؛ لم تُعدّل قيمه التاريخية.":"This report predates delivery accounting; historical values are unchanged."}</p>}
-                {breakdown.length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
+                {breakdown.length>0&&<div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
                   <div style={{padding:"14px 16px",borderBottom:"1px solid "+bc,fontWeight:800,fontSize:14}}>{rtl?"تفصيل الموردين":"Supplier Breakdown"}</div>
                   <div style={{overflowX:"auto"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -2119,19 +2122,19 @@ export default function App(){
             })()}
 
             {/* MODALS */}
-            {showRateEdit&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowRateEdit(false)}>
+            {showRateEdit&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowRateEdit(false)}>
               <div style={{background:bgC,borderRadius:16,padding:28,width:380,maxWidth:"95vw"}}>
                 <h2 style={{margin:"0 0 16px",fontSize:17,fontWeight:800}}>💱 {rtl?"تعديل سعر الصرف":"Edit Exchange Rate"}</h2>
                 <label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>1 OMR = ? AED</label>
                 <input type="number" value={rateEditVal} onChange={e=>setRateEditVal(e.target.value)} style={IS} step="0.01"/>
                 <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowRateEdit(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                  <button onClick={saveExchangeRate} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ":"Save"}</button>
+                  <button data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveExchangeRate} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ":"Save"}</button>
                 </div>
               </div>
             </div>}
 
-            {showCostsEdit&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowCostsEdit(false)}>
+            {showCostsEdit&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowCostsEdit(false)}>
               <div style={{background:bgC,borderRadius:16,padding:28,width:420,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
                 <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>🏷️ {rtl?"تعديل أسعار الأنواع":"Edit Type Costs"}</h2>
                 <p style={{color:tm,fontSize:12,margin:"0 0 16px"}}>{rtl?"السعر بالدرهم لكل جاكيت":"Price in AED per jacket"}</p>
@@ -2149,12 +2152,12 @@ export default function App(){
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowCostsEdit(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                  <button onClick={saveTypeCosts} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ":"Save"}</button>
+                  <button data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveTypeCosts} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ":"Save"}</button>
                 </div>
               </div>
             </div>}
 
-            {showSupPayModal&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowSupPayModal(false)}>
+            {showSupPayModal&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowSupPayModal(false)}>
               <div style={{background:bgC,borderRadius:16,padding:28,width:440,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
                 <h2 style={{margin:"0 0 20px",fontSize:17,fontWeight:800}}>💵 {isSupplierDebt(supPayForm)?(rtl?"إضافة دين سابق":"Add previous debt"):(rtl?"دفعة مورد جديدة":"New Supplier Payment")}</h2>
                 <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -2185,12 +2188,12 @@ export default function App(){
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowSupPayModal(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                  <button disabled={savingSupEntry} onClick={saveSupplierPayment} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{savingSupEntry?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"حفظ":"Save")}</button>
+                  <button disabled={savingSupEntry} data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveSupplierPayment} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{savingSupEntry?(rtl?"جارٍ الحفظ...":"Saving..."):(rtl?"حفظ":"Save")}</button>
                 </div>
               </div>
             </div>}
 
-            {showGenReport&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowGenReport(false)}>
+            {showGenReport&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowGenReport(false)}>
               <div style={{background:bgC,borderRadius:16,padding:28,width:440,maxWidth:"95vw"}}>
                 <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:800}}>📄 {rtl?"إنشاء تقرير مالي":"Generate Report"}</h2>
                 <p style={{color:tm,fontSize:12,margin:"0 0 20px"}}>{rtl?"معظم البيانات تُجمع تلقائياً. أدخل فقط الرصيد المتاح حالياً.":"Most data auto-collected. Just enter current balance."}</p>
@@ -2208,7 +2211,7 @@ export default function App(){
                 </div>
                 <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
                   <button onClick={()=>setShowGenReport(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                  <button onClick={generateFinancialReport} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"إنشاء وحفظ":"Generate & Save"}</button>
+                  <button data-enter-submit="" aria-keyshortcuts="Enter" onClick={generateFinancialReport} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"إنشاء وحفظ":"Generate & Save"}</button>
                 </div>
               </div>
             </div>}
@@ -2222,7 +2225,7 @@ export default function App(){
           <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
 
             {/* Cycle Settings */}
-            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24}}>
+            <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24}}>
               <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:800}}>🔄 {rtl?"إعدادات الدورة":"Cycle Settings"}</h3>
               <div style={{background:C.slateLight,borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:12,color:C.slate}}>
                 {rtl?"الدورة الحالية:":"Current Cycle:"} <b style={{color:tp}}>{settings.cycleLabel}</b> &nbsp;|&nbsp; {rtl?"الطلب القادم:":"Next ID:"} <b style={{color:"#E05E5C",fontFamily:"monospace"}}>{genOrderId()}</b>
@@ -2271,7 +2274,7 @@ export default function App(){
 
             {/* Security Settings */}
             <div style={{display:"flex",flexDirection:"column",gap:16}}>
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24}}>
                 <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:800}}>🔐 {rtl?"رمز الأمان":"Security PIN"}</h3>
                 <p style={{fontSize:13,color:tm,margin:"0 0 14px"}}>{rtl?"رمز إضافي لتأكيد عمليات الحذف والمدفوعات الكبيرة":"Extra PIN to confirm delete and payment actions"}</p>
                 <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -2295,7 +2298,7 @@ export default function App(){
               </div>
 
               {/* Cycle summary */}
-              <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24}}>
+              <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24}}>
                 <h3 style={{margin:"0 0 14px",fontSize:15,fontWeight:800}}>📊 {rtl?"إحصائيات الدورة":"Cycle Stats"}</h3>
                 {[
                   [rtl?"إجمالي الطلبات":"Total Orders", orders.length],
@@ -2313,7 +2316,7 @@ export default function App(){
           </div>
 
           {/* Activity Log */}
-          <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24,marginTop:16}}>
+          <div className="ui-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:24,marginTop:16}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
               <h3 style={{margin:0,fontSize:15,fontWeight:800}}>🕒 {rtl?"سجل العمليات":"Activity Log"}</h3>
               <select value={logUserFilter} onChange={e=>setLogUserFilter(e.target.value)} style={{...IS,width:200}}>
@@ -2348,7 +2351,7 @@ export default function App(){
       </main>
 
       {/* NEW ORDER MODAL */}
-      {dismissErrorTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!dismissingError&&setDismissErrorTarget(null)}>
+      {dismissErrorTarget&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!dismissingError&&setDismissErrorTarget(null)}>
         <div role="dialog" aria-modal="true" aria-labelledby="dismiss-error-title" style={{background:bgC,borderRadius:16,padding:28,width:460,maxWidth:"95vw"}}>
           <h2 id="dismiss-error-title" style={{margin:"0 0 12px",fontSize:18}}>{rtl?"إزالة من قائمة الأخطاء":"Remove from Errors"}</h2>
           <p style={{fontWeight:700}}>{dismissErrorTarget.id} — {dismissErrorTarget.customer||dismissErrorTarget.phone}</p>
@@ -2366,7 +2369,7 @@ export default function App(){
           </div>
         </div>
       </div>}
-      {showNew&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowNew(false),setDupWarning(null))}>
+      {showNew&&<div aria-hidden={dupWarning?true:undefined} data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowNew(false),setDupWarning(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:480,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{t.createOrder}</h2>
           <div style={{background:C.slateLight,borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -2392,13 +2395,13 @@ export default function App(){
           </div>
           <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowNew(false);setDupWarning(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button disabled={savingOrder} onClick={()=>saveOrd(false)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:savingOrder?"not-allowed":"pointer",opacity:savingOrder?0.6:1}}>{savingOrder?(rtl?"جارٍ الحفظ...":"Saving..."):t.createOrderBtn}</button>
+            <button disabled={savingOrder} data-enter-submit="" aria-keyshortcuts="Enter" onClick={()=>saveOrd(false)} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:savingOrder?"not-allowed":"pointer",opacity:savingOrder?0.6:1}}>{savingOrder?(rtl?"جارٍ الحفظ...":"Saving..."):t.createOrderBtn}</button>
           </div>
         </div>
       </div>}
 
       {/* DUPLICATE WARNING MODAL */}
-      {dupWarning&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setDupWarning(null)}>
+      {dupWarning&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setDupWarning(null)}>
         <div style={{background:bgC,borderRadius:16,padding:28,width:520,maxWidth:"90vw",maxHeight:"90vh",overflowY:"auto",textAlign:"center"}}>
           <div style={{fontSize:40,marginBottom:10}}>⚠️</div>
           <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:800,color:"#92400E"}}>{rtl?"يحتمل أن هذا الطلب مكرر":"This order might be a duplicate"}</h2>
@@ -2416,7 +2419,7 @@ export default function App(){
       </div>}
 
       {/* IMPORT EXCEL MODAL */}
-      {showImport&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!importing&&(setShowImport(false),setImportRows([]))}>
+      {showImport&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!importing&&(setShowImport(false),setImportRows([]))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:680,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>📥 {rtl?"استيراد طلبات من Excel":"Import Orders from Excel"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{rtl?"الأعمدة المطلوبة: الاسم، الهاتف، عدد الجاكيتات، المبلغ الإجمالي، المبلغ المدفوع (اختياري)":"Required columns: Customer, Phone, Jackets, Total, Paid (optional)"}</p>
@@ -2470,7 +2473,7 @@ export default function App(){
       </div>}
 
       {/* DELETE ORDER CONFIRM */}
-      {showDeleteOrder&&deleteOrderTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowDeleteOrder(false),setDeleteOrderTarget(null))}>
+      {showDeleteOrder&&deleteOrderTarget&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowDeleteOrder(false),setDeleteOrderTarget(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:380,maxWidth:"90vw",textAlign:"center"}}>
           <div style={{fontSize:40,marginBottom:12}}>🗑️</div>
           <h2 style={{margin:"0 0 8px",fontSize:17,fontWeight:800,color:"#E05E5C"}}>{t.deleteOrder}</h2>
@@ -2484,7 +2487,7 @@ export default function App(){
       </div>}
 
       {/* PAYMENT MODAL */}
-      {showPay&&payTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&closePaymentModal()}>
+      {showPay&&payTarget&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&closePaymentModal()}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"90vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>{t.paymentFor}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{payTarget.id} — {payTarget.customer||payTarget.phone}</p>
@@ -2500,13 +2503,13 @@ export default function App(){
           </div>
           <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
             <button disabled={savingPayment} onClick={closePaymentModal} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"9px 18px",cursor:savingPayment?"not-allowed":"pointer",color:tp,opacity:savingPayment?0.6:1}}>{t.cancel}</button>
-            <button disabled={savingPayment} onClick={()=>{const a=Number(document.getElementById("payamt").value);const r=document.getElementById("payref").value;const n=document.getElementById("paynote").value;if(!a||a<=0){showT(t.invalidAmount,"error");return;}addPay(payTarget.id,a,r,n);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 22px",fontWeight:700,cursor:savingPayment?"not-allowed":"pointer",opacity:savingPayment?0.65:1}}>{savingPayment?(rtl?"جارٍ الحفظ...":"Saving..."):t.savePayment}</button>
+            <button disabled={savingPayment} data-enter-submit="" aria-keyshortcuts="Enter" onClick={()=>{const a=Number(document.getElementById("payamt").value);const r=document.getElementById("payref").value;const n=document.getElementById("paynote").value;if(!a||a<=0){showT(t.invalidAmount,"error");return;}addPay(payTarget.id,a,r,n);}} style={{background:"#2D7A4F",color:"#fff",border:"none",borderRadius:8,padding:"9px 22px",fontWeight:700,cursor:savingPayment?"not-allowed":"pointer",opacity:savingPayment?0.65:1}}>{savingPayment?(rtl?"جارٍ الحفظ...":"Saving..."):t.savePayment}</button>
           </div>
         </div>
       </div>}
 
       {/* ADD/EDIT SUPPLIER */}
-      {showAddSup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowAddSup(false),setEditSup(null))}>
+      {showAddSup&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowAddSup(false),setEditSup(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"90vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{editSup?t.editSupplier:t.addSupplier}</h2>
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -2525,13 +2528,13 @@ export default function App(){
           </div>
           <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowAddSup(false);setEditSup(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={saveSup} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{t.saveSupplier}</button>
+            <button data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveSup} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{t.saveSupplier}</button>
           </div>
         </div>
       </div>}
 
       {/* ASSIGN ORDERS TO SUPPLIER */}
-      {showAssign&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowAssign(false)}>
+      {showAssign&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowAssign(false)}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:560,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>📋 {t.assignOrders}</h2>
           <div style={{marginBottom:16}}>
@@ -2566,7 +2569,7 @@ export default function App(){
         </div>
       </div>}
 
-      {showAddUser&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!savingUser&&(setShowAddUser(false),setEditUser(null))}>
+      {showAddUser&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!savingUser&&(setShowAddUser(false),setEditUser(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:480,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{editUser?(rtl?"تعديل المستخدم":"Edit User"):t.addUser}</h2>
           <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
@@ -2584,13 +2587,13 @@ export default function App(){
           <PermissionEditor value={userForm} onChange={setUserForm} actor={currentUser} rtl={rtl} border={bc} text={tp} muted={tm}/>
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <button disabled={savingUser} onClick={()=>{setShowAddUser(false);setEditUser(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button disabled={savingUser} onClick={saveUserEdit} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{savingUser?(rtl?"جارٍ الحفظ...":"Saving..."):(editUser?(rtl?"حفظ التعديلات":"Save Changes"):t.saveUser)}</button>
+            <button disabled={savingUser} data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveUserEdit} style={{background:"#E05E5C",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{savingUser?(rtl?"جارٍ الحفظ...":"Saving..."):(editUser?(rtl?"حفظ التعديلات":"Save Changes"):t.saveUser)}</button>
           </div>
         </div>
       </div>}
 
       {/* CHANGE SUPPLIER ON ORDER */}
-      {showChangeSup&&changeSupOrder&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowChangeSup(false),setChangeSupOrder(null))}>
+      {showChangeSup&&changeSupOrder&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowChangeSup(false),setChangeSupOrder(null))}>
         <div style={{background:bgC,borderRadius:16,padding:28,width:380,maxWidth:"90vw"}}>
           <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>🏭 {rtl?"تغيير المورد":"Change Supplier"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 16px"}}>{changeSupOrder.id} — {changeSupOrder.customer||changeSupOrder.phone}</p>
@@ -2613,7 +2616,7 @@ export default function App(){
       </div>}
 
       {/* EDIT ASSIGNED ORDERS */}
-      {showEditAssigned&&editAssignedSup&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowEditAssigned(false),setEditAssignedSup(null))}>
+      {showEditAssigned&&editAssignedSup&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowEditAssigned(false),setEditAssignedSup(null))}>
         <div style={{background:bgC,borderRadius:16,padding:28,width:580,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>✏️ {rtl?"تعديل الطلبات المسندة":"Edit Assigned Orders"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 16px"}}>🏭 {editAssignedSup.name}</p>
@@ -2660,7 +2663,7 @@ export default function App(){
       {recordEditor&&currentUser?.role==="admin"&&<RecordEditor {...recordEditor} rtl={rtl} onClose={()=>setRecordEditor(null)}/>}
 
       {/* EDIT ORDER MODAL */}
-      {showEditOrder&&editOrderTarget&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowEditOrder(false),setEditOrderTarget(null))}>
+      {showEditOrder&&editOrderTarget&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowEditOrder(false),setEditOrderTarget(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>✏️ {rtl?"تعديل الطلب":"Edit Order"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{editOrderTarget.id}</p>
@@ -2690,7 +2693,7 @@ export default function App(){
           </div>
           <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
             <button onClick={()=>{setShowEditOrder(false);setEditOrderTarget(null);}} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={saveOrderEdit} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ التعديلات":"Save Changes"}</button>
+            <button data-enter-submit="" aria-keyshortcuts="Enter" onClick={saveOrderEdit} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"حفظ التعديلات":"Save Changes"}</button>
           </div>
         </div>
       </div>}
@@ -2698,7 +2701,7 @@ export default function App(){
       {/* RENUMBER ORDER MODAL */}
       {showRenumber&&renumberTarget&&(()=>{
         const info=extractOrderNum(renumberTarget.id);
-        return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!renumbering&&(setShowRenumber(false),setRenumberTarget(null))}>
+        return <div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&!renumbering&&(setShowRenumber(false),setRenumberTarget(null))}>
           <div style={{background:bgC,borderRadius:16,padding:28,width:400,maxWidth:"90vw"}}>
             <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>🔢 {rtl?"تعديل رقم الطلب":"Renumber Order"}</h2>
             <p style={{color:tm,fontSize:13,margin:"0 0 16px"}}>{rtl?"الرقم الحالي:":"Current ID:"} <b style={{color:"#E05E5C"}}>{renumberTarget.id}</b></p>
@@ -2719,7 +2722,7 @@ export default function App(){
       })()}
 
       {/* COMPENSATION REQUEST MODAL */}
-      {showRefundRequest&&<div style={{position:"fixed",inset:0,background:"rgba(15,23,42,.68)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&setShowRefundRequest(false)}>
+      {showRefundRequest&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(15,23,42,.68)",zIndex:210,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&setShowRefundRequest(false)}>
         <div style={{background:bgC,color:tp,borderRadius:18,width:520,maxWidth:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 70px rgba(0,0,0,.3)"}}>
           <div style={{padding:"22px 24px 16px",borderBottom:"1px solid "+bc,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div><h2 style={{margin:0,fontSize:19}}>↩️ {rtl?"طلب تعويض":"Compensation Request"}</h2><p style={{margin:"5px 0 0",fontSize:12,color:tm}}>{rtl?"يرسل إلى المدير للمراجعة والاعتماد":"Sent to the manager for review and approval"}</p></div>
@@ -2750,7 +2753,7 @@ export default function App(){
       </div>}
 
       {/* BULK STATUS CHANGE MODAL */}
-      {showBulkActions&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowBulkActions(false)}>
+      {showBulkActions&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:150,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowBulkActions(false)}>
         <div style={{background:bgC,borderRadius:16,padding:28,width:380,maxWidth:"90vw"}}>
           <h2 style={{margin:"0 0 6px",fontSize:17,fontWeight:800}}>🔄 {rtl?"تغيير حالة الطلبات":"Change Orders Status"}</h2>
           <p style={{color:tm,fontSize:13,margin:"0 0 16px"}}>{rtl?`${selectedOrderIds.length} طلب محدد`:`${selectedOrderIds.length} orders selected`}</p>
@@ -2773,7 +2776,7 @@ export default function App(){
       </div>}
 
       {/* PRINT MODAL */}
-      {showPrint&&printO&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowPrint(false),setPrintO(null))}>
+      {showPrint&&printO&&<div data-enter-scope="" className="ui-modal-layer" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowPrint(false),setPrintO(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:500,maxWidth:"95vw",maxHeight:"88vh",overflowY:"auto"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
             <h2 style={{margin:0,fontSize:17,fontWeight:800}}>{t.printTitle}</h2>
