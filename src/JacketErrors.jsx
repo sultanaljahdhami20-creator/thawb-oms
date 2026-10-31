@@ -1,6 +1,6 @@
 import { handleEnterSubmit } from "./keyboardSubmit";
 import { useState, useRef, useEffect } from 'react';
-import { TABS, TYPES, STAGES, array, reportRows, filterRows, photos, persistReport, insertReport, reportArrays, workflow } from './jacketWorkflow';
+import { TABS, TYPES, STAGES, array, reportRows, filterRows, photos, persistReport, persistLegacyFollowUp, insertReport, reportArrays, workflow } from './jacketWorkflow';
 import './jacketErrors.css';
 import {additionalContacts,validContactPhone,normalizePhone,matchingReports,submissionSignature,submissionRequest,mergeReports} from './jacketReportActions';
 
@@ -89,6 +89,7 @@ export default function JacketErrors({
   onEditNote,
   onDismiss,
   onRegistered,
+  onOrderSaved,
   loadError
 }) {
   const lock = useRef(false);
@@ -250,8 +251,8 @@ export default function JacketErrors({
   }
   async function save() {
     const row = editor.snapshot;
-    if (!row || row.synthetic||row.merged_into) return;
-    if (editor.mode === 'state' && ['paused', 'rejected'].includes(draft.state) && !draft.reason?.trim()) {
+    if (!row || row.merged_into) return;
+    if (editor.mode === 'state' && ['paused', 'rejected', 'cancelled'].includes(draft.state) && !draft.reason?.trim()) {
       setError(text('اكتب سبب التعليق أو الرفض', 'Enter the reason for holding or rejecting'));
       return;
     }
@@ -292,6 +293,12 @@ export default function JacketErrors({
         by,
         at: now
       };
+      if(row.synthetic){
+        onOrderSaved(await persistLegacyFollowUp(client,row.order,entry));
+        setEditor(null);
+        notify(text('تم الحفظ','Saved'));
+        return;
+      }
       const stored = reportArrays(row);
       const notes = [...stored.notes, entry];
       const hist = [...stored.history, {
@@ -348,7 +355,7 @@ export default function JacketErrors({
     <div className="je-list">{shown.map(row => {
           const notes = [...array(row.order.errorNotes), ...array(row.notes),...array(row.relatedReports).flatMap(r=>array(r.notes))].filter(n => n.text && !['affected_jackets','workflow','contact','merge','duplicate_link','original_date_unknown'].includes(n.type)).sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0)),
             last = notes.at(-1),
-            closed = ['resolved', 'rejected'].includes(row.wf.state) || row.wf.state === 'refund' && row.wf.refundDone;
+            closed = ['resolved', 'rejected', 'cancelled'].includes(row.wf.state) || row.wf.state === 'refund' && row.wf.refundDone;
           return <article key={row.id} className={`je-row state-${row.wf.state}`}><div className="je-rowhead"><div><strong>{row.order_id} · {row.order.customer || row.customer_name || '—'}</strong><p className="je-muted" style={{fontSize:13,margin:"6px 0 0"}}>{text('رقم العميل: ', 'Customer phone: ')}<bdi dir="ltr" style={{fontWeight:600}}>{row.order.phone || row.customer_phone || text('غير مسجل', 'Not recorded')}</bdi></p>{additionalContacts(row).map((contact,i)=><p key={i} style={{fontSize:13,margin:'6px 0 0'}}>{text('رقم إضافي','Additional phone')}{contact.label?' · '+contact.label:''}: <bdi dir="ltr">{contact.phone}</bdi></p>)}</div><span className="je-badge">{label(TABS, row.wf.state)}</span></div>
         {row.merged_into&&<p className="je-warning">{text('نسخة مدمجة مع البلاغ #','Merged into report #')}{row.merged_into}</p>}{row.dataWarning && <p className="je-error">{text('بيانات البلاغ تحتاج مراجعة؛ التعديل متوقف لحمايتها', 'Report data needs review; editing is disabled to protect it')}</p>}<h3>{label(TYPES, row.wf.kind)} · {text('المتضررة', 'Affected')}: <bdi dir="ltr">{row.synthetic ? '—' : row.affectedJackets ?? row.affected_jackets ?? 1} / {row.order.jackets ?? '—'}</bdi></h3>
         {row.error_description && <p className="je-description">{row.error_description}</p>}
@@ -358,10 +365,10 @@ export default function JacketErrors({
         {last ? <div className="je-note"><b>{text('آخر ملاحظة: ', 'Latest note: ')}</b>{last.text.length > 220 ? <details><summary>{last.text.slice(0, 220)}… {text('عرض المزيد', 'Show more')}</summary><p>{last.text}</p></details> : <span>{last.text}</span>}<small>{last.by || '—'} · {date(last.at)}</small></div> : <p className="je-muted">{text('لا توجد ملاحظات بعد', 'No notes yet')}</p>}
         {row.wf.next && <p><b>{text('الخطوة القادمة: ', 'Next step: ')}</b>{row.wf.next}</p>}
         <div className="je-meta"><span>{text('سُجّل: ', 'Registered: ')}{date(row.created_at)}</span>{!closed && row.created_at && Number.isFinite(Date.parse(row.created_at)) && <span>{Math.max(0, Math.floor((now - Date.parse(row.created_at)) / 86400000))} {text('يوم مفتوح', 'days open')}</span>}<span>{text('آخر متابعة: ', 'Last follow-up: ')}{date(row.lastFollowUp||row.updated_at)}</span><span>📷 {photos(row).length}</span></div>
-        <div className="je-actions">{row.synthetic ? <button onClick={() => {
+        <div className="je-actions">{row.synthetic ? <><button onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => onDismiss(row.order)}>{text('إزالة من قائمة الأخطاء', 'Remove from Errors')}</button><button onClick={() => {
                 setForm(empty);
                 setCreateOrder(row.order_id);
-              }}>{text('استكمال البلاغ', 'Complete report')}</button> : <><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></>}{!row.synthetic&&!row.merged_into&&<button onClick={()=>edit(row,'contact')}>{text('إضافة رقم تواصل','Add contact number')}</button>}{!row.synthetic&&!row.merged_into&&matchingReports(reports,row.order_id,row.error_description,row.affectedJackets).some(r=>Number(r.id)<Number(row.id))&&<button onClick={()=>edit(row,'merge')}>{text('دمج المكرر','Merge duplicate')}</button>}<button className="je-primary" onClick={() => setDetail(row.id)}>{text('التفاصيل', 'Details')}</button></div>
+              }}>{text('استكمال البلاغ', 'Complete report')}</button></> : <><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></>}{!row.synthetic&&!row.merged_into&&<button onClick={()=>edit(row,'contact')}>{text('إضافة رقم تواصل','Add contact number')}</button>}{!row.synthetic&&!row.merged_into&&matchingReports(reports,row.order_id,row.error_description,row.affectedJackets).some(r=>Number(r.id)<Number(row.id))&&<button onClick={()=>edit(row,'merge')}>{text('دمج المكرر','Merge duplicate')}</button>}<button className="je-primary" onClick={() => setDetail(row.id)}>{text('التفاصيل', 'Details')}</button></div>
       </article>;
         })}{!shown.length && <div className="je-empty">{text('لا توجد بلاغات في هذه القائمة', 'No reports in this list')}</div>}</div>
     </>}
@@ -391,7 +398,7 @@ export default function JacketErrors({
           })}>{STAGES.map(([key, ar, en]) => <option key={key} value={key}>{rtl ? ar : en}</option>)}</select></label><label>{text('نوع الخطأ', 'Error type')}<select value={draft.kind || ''} onChange={e => setDraft({
             ...draft,
             kind: e.target.value
-          })}><option value="">{text('غير محدد', 'Not set')}</option>{TYPES.map(([key, ar, en]) => <option key={key} value={key}>{rtl ? ar : en}</option>)}</select></label><label>{text('السبب', 'Reason')}{['paused', 'rejected'].includes(draft.state) ? ' *' : ''}<textarea value={draft.reason || ''} onChange={e => setDraft({
+          })}><option value="">{text('غير محدد', 'Not set')}</option>{TYPES.map(([key, ar, en]) => <option key={key} value={key}>{rtl ? ar : en}</option>)}</select></label><label>{text('السبب', 'Reason')}{['paused', 'rejected', 'cancelled'].includes(draft.state) ? ' *' : ''}<textarea value={draft.reason || ''} onChange={e => setDraft({
             ...draft,
             reason: e.target.value
           })} /></label><label>{text('الخطوة القادمة', 'Next step')}<input value={draft.next || ''} onChange={e => setDraft({
@@ -404,7 +411,7 @@ export default function JacketErrors({
       setEditor(null);
       setError('');
     }} action={() => save()} busy={busy} imageBusy={imageBusy} error={error} text={text} />}
-    {current && !editor && <Dialog title={`${text('تفاصيل البلاغ', 'Report details')} · ${current.order_id}`} body={<div><p>{current.error_description}</p>{!current.synthetic&&!current.merged_into && <div className="je-actions"><button onClick={() => edit(current, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => edit(current, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></div>}{!current.synthetic && user?.role === 'admin' && <button onClick={() => {
+    {current && !editor && <Dialog title={`${text('تفاصيل البلاغ', 'Report details')} · ${current.order_id}`} body={<div><p>{current.error_description}</p>{!current.merged_into && <div className="je-actions"><button onClick={() => edit(current, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => edit(current, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></div>}{!current.synthetic && user?.role === 'admin' && <button onClick={() => {
         setDetail(null);
         onEdit(current);
       }}>{text('تعديل بيانات البلاغ', 'Edit report data')}</button>}<button onClick={() => {

@@ -3,7 +3,7 @@
 // snapshot wins over legacy order/report statuses. Images belong to note events.
 // original_date_unknown distinguishes completing an old order-only case from
 // registering a genuinely new report (created_at itself is NOT NULL in legacy DBs).
-export const TABS = [['new', 'جديدة', 'New'], ['active', 'قيد المتابعة', 'Following up'], ['paused', 'معلّقة', 'On hold'], ['resolved', 'تم الحل', 'Resolved'], ['rejected', 'مرفوضة', 'Rejected'], ['refund', 'استرجاع المبلغ', 'Refund'], ['all', 'الكل', 'All']];
+export const TABS = [['new', 'جديدة', 'New'], ['active', 'قيد المتابعة', 'Following up'], ['paused', 'معلّقة', 'On hold'], ['resolved', 'تم الحل', 'Resolved'], ['rejected', 'مرفوضة', 'Rejected'], ['cancelled', 'ملغاة', 'Cancelled'], ['refund', 'استرجاع المبلغ', 'Refund'], ['all', 'الكل', 'All']];
 export const TYPES = [['size', 'مقاس', 'Size'], ['embroidery', 'تطريز / اسم', 'Embroidery / name'], ['color', 'لون', 'Color'], ['wrong', 'جاكيت مختلف', 'Wrong jacket'], ['defect', 'عيب تصنيع', 'Manufacturing defect'], ['other', 'أخرى', 'Other']];
 export const STAGES = [['review', 'مراجعة البلاغ', 'Reviewing report'], ['waiting', 'بانتظار استلامه من العميل', 'Waiting for customer'], ['received', 'تم استلامه من العميل', 'Received from customer'], ['factory', 'تم إرساله للمصنع', 'Sent to factory'], ['modifying', 'عند المصنع — قيد التعديل', 'At factory — being modified'], ['modified', 'انتهى التعديل', 'Modification finished'], ['returned', 'تم استلامه من المصنع', 'Received from factory'], ['ready', 'جاهز للتسليم', 'Ready for delivery'], ['sent', 'أُرسل للعميل', 'Sent to customer'], ['replacement', 'يحتاج استبدال', 'Needs replacement']];
 export function array(value) {
@@ -96,7 +96,11 @@ export function mergedTarget(report) {
 export function reportRows(orders, reports, {includeMerged=false}={}) {
   const byId=new Map(reports.map(r=>[Number(r.id),r]));
   const rootId=report=>{let root=report;while(mergedTarget(root)&&byId.has(mergedTarget(root)))root=byId.get(mergedTarget(root));return Number(root.id);};
-  const rows = reports.filter(r=>includeMerged||rootId(r)===Number(r.id)).map(r => {
+  const rows = reports.filter(r=>{
+    const order=orders.find(o=>o.id===r.order_id);
+    const dismissed=order?.error_dismissed_at;
+    return (!dismissed || Date.parse(r.created_at)>Date.parse(dismissed)) && (includeMerged||rootId(r)===Number(r.id));
+  }).map(r => {
     const order = orders.find(o => o.id === r.order_id) || {
       id: r.order_id,
       customer: r.customer_name,
@@ -193,4 +197,18 @@ export async function insertReport(client,payload,request) {
   }
   if(!result.data?.id)throw new Error('No saved report');
   return {...normalizeReport(result.data),submissionExisting:false};
+}
+
+// Legacy cases remain order records: editing them must not register a second report.
+export async function persistLegacyFollowUp(client, order, entry) {
+  const raw=order.error_notes;
+  let notes=raw==null?array(order.errorNotes):typeof raw==='string'?JSON.parse(raw):raw;
+  if(!Array.isArray(notes)||notes.some(n=>!n||typeof n!=='object'||Array.isArray(n)))throw new Error('تعذر قراءة الملاحظات / Unrecognized order notes');
+  notes=[...notes,entry];
+  let query=client.from('orders').update({error_notes:notes}).eq('id',order.id);
+  query=raw==null?query.is('error_notes',null):query.eq('error_notes',JSON.stringify(raw));
+  const {data,error}=await query.select().single();
+  if(error)throw error;
+  if(!data)throw new Error('تغير الطلب؛ حدّث الصفحة / Order changed; refresh');
+  return {...order,error_notes:data.error_notes,errorNotes:array(data.error_notes)};
 }

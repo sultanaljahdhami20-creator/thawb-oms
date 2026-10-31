@@ -1675,7 +1675,7 @@ export default function App(){
           </div>
         </div>}
         {(page==="errors"&&can("errors")||showNewError)&&<div style={page!=="errors"?{display:"contents"}:undefined}>
-          <JacketErrors loadError={jacketLoadError} orders={orders} reports={jacketErrors} setReports={setJacketErrors} client={supabase} user={currentUser} rtl={rtl} dark={dm}
+          <JacketErrors onOrderSaved={saved=>setOrders(prev=>prev.map(o=>o.id===saved.id?saved:o))} loadError={jacketLoadError} orders={orders} reports={jacketErrors} setReports={setJacketErrors} client={supabase} user={currentUser} rtl={rtl} dark={dm}
             onRegistered={async order=>{
               if(order.status===13)return;
               try{

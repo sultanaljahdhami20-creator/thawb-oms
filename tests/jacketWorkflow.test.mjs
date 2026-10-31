@@ -111,3 +111,31 @@ test('large image notes use only a bounded content token, never image data in qu
   assert(filters.some(([key])=>key==='content_fingerprint'));
   assert(!filters.some(([key])=>key==='notes'||key==='status_history'));
 });
+
+test('dismissed reports stay out of the workflow after reload; later reports remain visible',()=>{
+  const order={id:'A',status:10,errorSubStatus:0,error_dismissed_at:'2026-10-30T12:00:00Z'};
+  const reports=[{id:1,order_id:'A',created_at:'2026-10-29'}, {id:2,order_id:'A',created_at:'2026-10-31'}];
+  assert.deepEqual(reportRows([order],reports).map(r=>r.id),[2]);
+  assert.equal(reportRows([order],[reports[0]]).length,0);
+});
+
+test('legacy follow-up persists cancellation without inserting a report or losing notes',async()=>{
+  const {persistLegacyFollowUp}=await import('../src/jacketWorkflow.js');
+  const original=[{text:'keep',photos:[{url:'https://example.com/a.jpg'}]}];
+  const order={id:'A',status:13,error_notes:original,errorNotes:original};
+  const entry={type:'workflow',state:'cancelled',stage:'sent',reason:'duplicate',at:'2026-10-31'};
+  const filters=[];
+  const client={from(table){assert.equal(table,'orders');return {update(patch){
+    const chain={eq(k,v){filters.push([k,v]);return chain;},select(){return {single:async()=>({data:{error_notes:patch.error_notes}})};}};
+    return chain;
+  }};}};
+  const saved=await persistLegacyFollowUp(client,order,entry);
+  assert.deepEqual(saved.errorNotes[0],original[0]);
+  assert(filters.some(([key,value])=>key==='error_notes'&&value===JSON.stringify(original)));
+  const rows=reportRows([saved],[]);
+  assert.equal(rows.length,1);assert.equal(rows[0].synthetic,true);
+  assert.equal(rows[0].wf.state,'cancelled');assert.equal(rows[0].created_at,null);
+  const failed={from(){return {update(){const chain={eq(){return chain;},select(){return {single:async()=>({data:null,error:{code:'PGRST116'}})};}};return chain;}};}};
+  await assert.rejects(persistLegacyFollowUp(failed,order,entry));
+  assert.deepEqual(order.error_notes,original);
+});
