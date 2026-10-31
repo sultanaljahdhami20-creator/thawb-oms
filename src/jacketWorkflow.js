@@ -88,16 +88,28 @@ export function workflow(report, order = {}) {
     refundDone: false
   };
 }
-export function reportRows(orders, reports) {
-  const rows = reports.map(r => {
+export function mergedTarget(report) {
+  const link=[...array(report.notes)].reverse().find(n=>n.type==='duplicate_link');
+  const target=Number(link?.target_id);
+  return Number.isInteger(target)&&target>0&&target<Number(report.id)?target:null;
+}
+export function reportRows(orders, reports, {includeMerged=false}={}) {
+  const byId=new Map(reports.map(r=>[Number(r.id),r]));
+  const rootId=report=>{let root=report;while(mergedTarget(root)&&byId.has(mergedTarget(root)))root=byId.get(mergedTarget(root));return Number(root.id);};
+  const rows = reports.filter(r=>includeMerged||rootId(r)===Number(r.id)).map(r => {
     const order = orders.find(o => o.id === r.order_id) || {
       id: r.order_id,
       customer: r.customer_name,
       phone: r.customer_phone
     };
     const notes = array(r.notes);
+    const related=reports.filter(other=>other.id!==r.id&&rootId(other)===Number(r.id));
+    const lastFollowUp=[r.updated_at,...related.map(other=>other.updated_at)].filter(value=>Number.isFinite(Date.parse(value))).sort((a,b)=>Date.parse(b)-Date.parse(a))[0];
     return {
       ...r,
+      lastFollowUp,
+      merged_into:rootId(r)!==Number(r.id)?rootId(r):null,
+      relatedReports:related,
       created_at: notes.some(n => n.type === 'original_date_unknown') ? null : r.created_at,
       affectedJackets: Number(notes.find(n => n.type === 'affected_jackets')?.value) || Number(r.affected_jackets) || r.affectedJackets || 1,
       order,
@@ -129,22 +141,23 @@ export function filterRows(rows, {
   sort = 'oldest'
 }) {
   const time = v => Number.isFinite(Date.parse(v)) ? Date.parse(v) : null;
-  return rows.filter(r => (tab === 'all' || r.wf.state === tab) && (!search || [r.order_id, r.order.customer, r.order.phone, r.error_description, r.wf.kind, ...array(r.notes).map(n => n.text)].join(' ').toLowerCase().includes(search.toLowerCase())) && (!from || time(r.created_at) !== null && time(r.created_at) >= time(from + 'T00:00:00')) && (!to || time(r.created_at) !== null && time(r.created_at) <= time(to + 'T23:59:59.999'))).sort((a, b) => {
-    const av = time(sort === 'updated' ? a.updated_at : a.created_at),
-      bv = time(sort === 'updated' ? b.updated_at : b.created_at);
+  return rows.filter(r => (tab === 'all' || r.wf.state === tab) && (!search || [r.order_id, r.order.customer, r.order.phone, r.error_description, r.wf.kind, ...[...array(r.notes),...array(r.relatedReports).flatMap(related=>array(related.notes))].map(n => [n.text,n.phone,n.label].filter(Boolean).join(' '))].join(' ').toLowerCase().includes(search.toLowerCase())) && (!from || time(r.created_at) !== null && time(r.created_at) >= time(from + 'T00:00:00')) && (!to || time(r.created_at) !== null && time(r.created_at) <= time(to + 'T23:59:59.999'))).sort((a, b) => {
+    const av = time(sort === 'updated' ? a.lastFollowUp||a.updated_at : a.created_at),
+      bv = time(sort === 'updated' ? b.lastFollowUp||b.updated_at : b.created_at);
     if (av === null) return bv === null ? String(a.id).localeCompare(String(b.id)) : 1;
     if (bv === null) return -1;
     return (sort === 'oldest' ? av - bv : bv - av) || String(a.id).localeCompare(String(b.id));
   });
 }
 export function photos(report) {
-  return [...(report.error_image_url ? [{
+  return [...array(report.relatedReports).flatMap(photos),...(report.error_image_url ? [{
     url: report.error_image_url,
     caption: ''
   }] : []), ...array(report.notes).flatMap(n => array(n.photos))].filter(p => /^(https?:\/\/|data:image\/(jpeg|png|webp);base64,)/i.test(p.url || ''));
 }
 export async function persistReport(client, report, patch) {
   reportArrays(report);
+  if(report.merged_into||mergedTarget(report))throw new Error('البلاغ مدمج؛ افتح البلاغ الأساسي / Report merged; open the main report');
   if (report.id === undefined || report.id === null) throw new Error('Report ID missing');
   let query = client.from('jacket_errors').update(patch).eq('id', report.id);
   if (report.updated_at) query = query.eq('updated_at', report.updated_at);
@@ -160,20 +173,24 @@ export async function persistReport(client, report, patch) {
   if (!data) throw new Error('لم يتم الحفظ / Changes were not saved');
   return normalizeReport(data);
 }
-export async function insertReport(client, payload) {
-  let result = await client.from('jacket_errors').insert(payload).select().single();
-  if (result.error && ['PGRST204', '42703'].includes(result.error.code) && String(result.error.message).includes('affected_jackets')) {
-    const legacy = {
-      ...payload
-    };
-    delete legacy.affected_jackets;
-    legacy.notes = JSON.stringify([...array(payload.notes), {
-      type: 'affected_jackets',
-      value: payload.affected_jackets
-    }]);
-    result = await client.from('jacket_errors').insert(legacy).select().single();
+export async function insertReport(client,payload,request) {
+  if(!request?.key||!request?.signature)throw new Error('Submission identity missing');
+  const entry={...payload,submission_key:request.key};
+  let result=await client.from('jacket_errors').insert(entry).select().single();
+  if(result.error&&['PGRST204','42703'].includes(result.error.code)&&String(result.error.message).includes('affected_jackets')){
+    const legacy={...entry};delete legacy.affected_jackets;
+    legacy.notes=JSON.stringify([...array(payload.notes),{type:'affected_jackets',value:payload.affected_jackets}]);
+    result=await client.from('jacket_errors').insert(legacy).select().single();
   }
-  if (result.error) throw result.error;
-  if (!result.data?.id) throw new Error('No saved report');
-  return normalizeReport(result.data);
+  if(result.error){
+    // A failed HTTP response can follow a committed insert. Read by the same
+    // unique request key; never upsert/overwrite the already-saved report.
+    try{
+      const recovered=await client.from('jacket_errors').select('*').eq('submission_key',request.key).single();
+      if(!recovered.error&&recovered.data?.id)return {...normalizeReport(recovered.data),submissionExisting:true};
+    }catch{/* Preserve the original error and the draft for retry. */}
+    throw result.error;
+  }
+  if(!result.data?.id)throw new Error('No saved report');
+  return {...normalizeReport(result.data),submissionExisting:false};
 }

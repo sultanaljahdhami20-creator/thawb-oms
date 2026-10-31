@@ -24,3 +24,10 @@
 Deploy only the reviewed release files through the existing GitHub → Cloudflare Pages integration. Exclude unrelated local design previews and keyboard work. Verify the Cloudflare check for the exact commit and confirm the deployed asset contains the workflow.
 
 To roll back the UI, redeploy the previous known-good commit `4a0b3e570f7bf632987557d81bddacc9c22c539a` (or the immediate preceding production commit if another release happens first). Keep the additive fingerprint column and all saved report data; do not delete workflow metadata or images. No data rollback is required for a UI rollback.
+
+## Retry protection and additional contacts
+
+- `submission_key` is a nullable UUID with a unique partial index. A stable browser request identity survives failed responses/remounts; recovery reads the existing report by that key, without overwriting it.
+- Matching legacy reports are flagged before registration; a separate-issue checkbox allows legitimate independent cases. Additional contact numbers are note events, leaving original order phone numbers intact.
+- Duplicate linking writes a protected `duplicate_link` event to the newer source only. The main row aggregates related notes, photos and contacts. Every original record and history remains preserved and can be viewed with the merged-copies toggle. Links point to older IDs to prevent cycles.
+- No new callable database functions, endpoint grants or policy changes are introduced.

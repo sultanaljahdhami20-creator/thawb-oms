@@ -77,7 +77,7 @@ export async function saveJacketCorrection(client, record, form, orderJackets, b
 }
 export async function saveJacketNoteEdit(client, record, index, text, by, now = new Date().toISOString()) {
   const stored = reportArrays(record);
-  if (!text.trim() || !Number.isInteger(index) || !stored.notes[index] || ['workflow', 'affected_jackets', 'original_date_unknown'].includes(stored.notes[index].type)) throw new Error('Invalid note edit');
+  if (!text.trim() || !Number.isInteger(index) || !stored.notes[index] || ['workflow', 'affected_jackets', 'original_date_unknown','contact','merge'].includes(stored.notes[index].type)) throw new Error('Invalid note edit');
   const original = stored.notes[index];
   const notes = stored.notes.map((note, i) => i === index ? {
     ...note,

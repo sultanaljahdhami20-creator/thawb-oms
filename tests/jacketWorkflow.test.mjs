@@ -39,16 +39,16 @@ test('legacy and note images are combined; malformed data and unsafe URLs are ex
 function db(results) {
   const calls=[];return {calls,from(table){return {insert(payload){calls.push({table,payload});return {select(){return {single:async()=>results.shift()};}};},update(payload){calls.push({table,payload});const chain={eq(){return chain;},select(){return {single:async()=>results.shift()};}};return chain;}};}};
 }
-test('missing affected count column retries with compatible metadata and preserves notes',async()=>{
-  const client=db([{error:{code:'PGRST204',message:'affected_jackets missing'}},{data:{id:1,notes:'[]'}}]);
-  await insertReport(client,{affected_jackets:3,notes:JSON.stringify([{text:'keep'}])});
-  assert.equal(client.calls.length,2);assert.equal('affected_jackets' in client.calls[1].payload,false);
-  assert.equal(JSON.parse(client.calls[1].payload.notes)[1].value,3);
+test('creation keeps a stable unique key and preserves payload and notes',async()=>{
+  const payload={order_id:'A',affected_jackets:3,notes:JSON.stringify([{text:'keep'}])};
+  const client=db([{data:{id:1,...payload}}]);
+  const saved=await insertReport(client,payload,{key:'stable-key',signature:'signature'});
+  assert.equal(client.calls[0].payload.submission_key,'stable-key');assert.equal(client.calls[0].payload.notes,payload.notes);assert.equal(saved.submissionExisting,false);
 });
 test('permission failures, concurrent changes, and zero-row results never become successes',async()=>{
   for(const result of [{error:{message:'denied',code:'42501'}},{data:null,error:null}]) {
     await assert.rejects(persistReport(db([result]),{id:1,updated_at:'2020-01-01'},{}));
-    await assert.rejects(insertReport(db([result]),{}));
+    await assert.rejects(insertReport(db([result]),{},{key:'key',signature:'signature'}));
   }
 });
 
