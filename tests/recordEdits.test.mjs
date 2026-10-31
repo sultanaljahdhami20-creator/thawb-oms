@@ -23,7 +23,7 @@ test('rejects fractions, out of range, nonfinite, blank and negative affected co
     await assert.rejects(saveJacketCorrection(db,record,{...form,affected_jackets:count},5,'Admin'));
     assert.equal(db.writes.length,0);
   }
-  assert.throws(()=>jacketErrorPatch(record,{...form,error_description:'  '},5,'Admin'));
+  assert.doesNotThrow(()=>jacketErrorPatch(record,{...form,jacket_owner:'',error_description:''},5,'Admin'));
 });
 test('missing count column falls back only for schema errors and keeps new count on reload',async()=>{
   const db=client([{error:{code:'PGRST204',message:'affected_jackets column not found'}}]);

@@ -6,10 +6,12 @@ import DeliverySummary from "./DeliverySummary";
 import { DEFAULT_DELIVERY_RATE, deliverySummary, expectedNetProfit } from "./deliveryAccounting";
 import RefundsPage from "./RefundsPage";
 import BusinessDocuments from "./BusinessDocuments.jsx";
-import { isErrorOrder, dismissOrderError } from "./errorOrders";
+import { dismissOrderError } from "./errorOrders";
 import InstallApp from "./InstallApp";
 import RecordEditor from "./RecordEditor";
-import {updateRecord,saveJacketCorrection} from "./recordEdits";
+import JacketErrors from "./JacketErrors";
+import {normalizeReport} from "./jacketWorkflow";
+import {updateRecord,saveJacketCorrection,saveJacketNoteEdit} from "./recordEdits";
 import PermissionEditor from "./PermissionEditor";
 import { PERMISSIONS, hasPermission, canManageUser, canSaveUser, initialPage, persistUser } from "./permissions";
 import { createOrderWithPayment } from "./orderCreation";
@@ -23,15 +25,6 @@ en:{brand:"THAWB",brandSub:"Order Management",dashboard:"Dashboard",orders:"Orde
 ar:{brand:"ثوب",brandSub:"إدارة الطلبات",dashboard:"الرئيسية",orders:"الطلبات",suppliers:"الموردون",reports:"التقارير",users:"المستخدمون",darkMode:"الوضع الداكن",lightMode:"الوضع الفاتح",totalOrders:"إجمالي الطلبات",totalSales:"إجمالي المبيعات",collected:"المحصّل",outstanding:"المتبقي",delivered:"تم التسليم",paymentsReceived:"مدفوعات مستلمة",ordersPending:"طلب لم يُسدَّد",ordersByStatus:"الطلبات حسب الحالة",overdueOrders:"الطلبات المتأخرة",noOverdue:"لا توجد طلبات متأخرة",recentOrders:"أحدث الطلبات",supplierWorkload:"أعباء الموردين",activeOrders:"طلبات نشطة",allOrders:"جميع الطلبات",newOrder:"+ طلب جديد",searchPlaceholder:"ابحث في الطلبات...",allStatuses:"جميع الحالات",allSuppliers:"جميع الموردين",ordersFound:"طلبات",orderNum:"رقم الطلب",customer:"العميل",date:"التاريخ",jackets:"جاكيت",total:"الإجمالي",paid:"المدفوع",balance:"المتبقي",status:"الحالة",supplier:"المورد",actions:"إجراءات",view:"عرض",pay:"دفعة",deleteOrder:"حذف",back:"رجوع",productionPipeline:"مسار الإنتاج",customerInfo:"العميل",name:"الاسم",phone:"الهاتف",orderDate:"تاريخ الطلب",financialSummary:"الملخص المالي",unassigned:"غير محدد",remainingBalance:"المبلغ المتبقي",recordPayment:"+ تسجيل دفعة",paymentHistory:"سجل المدفوعات",noPayments:"لا توجد مدفوعات.",recordedBy:"سجّل بواسطة",notes:"ملاحظات",totalPaid:"إجمالي المدفوع",createOrder:"إنشاء طلب جديد",customerName:"اسم العميل",phoneNumber:"رقم الهاتف *",numJackets:"عدد الجاكيتات *",totalAmount:"المبلغ الإجمالي (ر.ع) *",paidAmount:"المبلغ المدفوع (ر.ع)",cancel:"إلغاء",createOrderBtn:"إنشاء الطلب",orderCreated:"تم إنشاء الطلب!",fillRequired:"يرجى إدخال الهاتف والجاكيتات والمبلغ",paymentFor:"دفعة للطلب",remainBal:"المبلغ المتبقي",alreadyPaid:"المدفوع مسبقاً",payAmount:"مبلغ الدفعة (ر.ع) *",notesPlaceholder:"تحويل بنكي، كاش، رقم مرجعي...",savePayment:"حفظ الدفعة",paymentSaved:"تم تسجيل الدفعة!",invalidAmount:"أدخل مبلغاً صحيحاً",refNumber:"رقم المرجع",reportsTitle:"التقارير والتحليلات",totalRevenue:"إجمالي الإيرادات",totalJackets:"إجمالي الجاكيتات",ordersDelivered:"الطلبات المسلّمة",userManagement:"إدارة المستخدمين",adminRole:"مدير",csRole:"خدمة العملاء",viewerRole:"مشاهد",adminPerms:"صلاحيات كاملة · إدارة المستخدمين · الإعدادات",csPerms:"إنشاء الطلبات · تسجيل المدفوعات · تحديث الحالات",viewerPerms:"صلاحية عرض فقط",statuses:["تم استلام الطلب","في انتظار التفاصيل","تأكيد الطلب","إرسال التصميم","في انتظار الموافقة","الموافقة على التصميم","إرسال للمورد","في الإنتاج","اكتمل الإنتاج","في المخزن","جاري الشحن","تم التسليم","فيه خطأ"],active:"نشط",deliv:"مُسلَّم",delayed:"متأخر",activeOrdersLabel:"الطلبات النشطة:",noActiveOrders:"لا توجد طلبات نشطة",printOrder:"طباعة",printTitle:"ملخص الطلب",printDate:"تاريخ الطباعة",printFooter:"ثوب سينيورز",closePreview:"إغلاق",dateFrom:"من تاريخ",dateTo:"إلى تاريخ",reportType:"نوع التقرير",clearFilters:"مسح",allOrdersType:"جميع الطلبات",outstandingOnly:"الأرصدة المتبقية",deliveredOnly:"المسلّمة فقط",columns:"الأعمدة",reportResults:"نتائج التقرير",grandTotal:"الإجمالي",noResults:"لا توجد نتائج",assignSupplier:"تعيين مورد",assignOrders:"إسناد طلبات للمورد",selectSupplier:"اختر المورد",selectOrders:"اختر الطلبات",confirmAssign:"تأكيد الإسناد",addSupplier:"+ إضافة مورد",editSupplier:"تعديل",deleteSupplier:"حذف",supplierName:"اسم المورد",supplierPhone:"الهاتف",supplierSpec:"التخصص",saveSupplier:"حفظ",supplierAdded:"تم إضافة المورد!",supplierUpdated:"تم تحديث المورد!",supplierDeleted:"تم حذف المورد!",ordersAssigned:"تم إسناد الطلبات!",noSuppliersYet:"لا يوجد موردون حتى الآن.",supplierPayment:"دفعة للمورد",addUser:"+ إضافة مستخدم",userName:"الاسم الكامل",userEmail:"البريد الإلكتروني",userRole:"الدور",userPass:"كلمة المرور",saveUser:"حفظ المستخدم",userAdded:"تم إضافة المستخدم!",userDeleted:"تم حذف المستخدم!",deleteConfirm:"هل أنت متأكد من الحذف؟",deleteOrderConfirm:"حذف هذا الطلب؟ لا يمكن التراجع.",orderDeleted:"تم حذف الطلب!",permOrders:"إدارة الطلبات",permPayments:"إدارة المدفوعات",permReports:"عرض التقارير",permSuppliers:"إدارة الموردين",permUsers:"إدارة المستخدمين",extras:"اللوقوهات الإضافية",extrasShort:"الإضافات",deliveryArea:"منطقة التوصيل",deliveryPayment:"حالة دفع التوصيل",deliveryPaid:"التوصيل مدفوع",deliveryUnpaid:"التوصيل غير مدفوع"}
 };
 
-const SEED_ORDERS=[
-  {id:"2025-001",customer:"Ahmed Al-Rashidi",phone:"91234567",date:"2025-01-10",jackets:25,total:350,paid:200,status:8,supplier:"",updated:"2025-03-15",payments:[{date:"2025-01-10",amount:100,by:"Admin",ref:"",note:"Deposit"},{date:"2025-02-01",amount:100,by:"Admin",ref:"TRF-001",note:"Second payment"}]},
-  {id:"2025-002",customer:"Fatma Al-Kindi",phone:"92345678",date:"2025-01-18",jackets:40,total:480,paid:480,status:11,supplier:"Al-Noor Tailoring",updated:"2025-04-02",payments:[{date:"2025-01-18",amount:480,by:"Admin",ref:"CASH",note:"Full payment"}]},
-  {id:"2025-003",customer:"Mohammed Al-Balushi",phone:"93456789",date:"2025-02-05",jackets:18,total:270,paid:100,status:6,supplier:"",updated:"2025-03-20",payments:[{date:"2025-02-05",amount:100,by:"Admin",ref:"",note:"Initial"}]},
-  {id:"2025-004",customer:"Aisha Al-Wahaibi",phone:"94567890",date:"2025-02-14",jackets:30,total:525,paid:0,status:2,supplier:"",updated:"2025-02-14",payments:[]},
-  {id:"2025-005",customer:"Omar Al-Hinai",phone:"95678901",date:"2025-03-01",jackets:22,total:340,paid:170,status:7,supplier:"Gulf Stitch Co.",updated:"2025-03-28",payments:[{date:"2025-03-01",amount:170,by:"Admin",ref:"TRF-002",note:"Half up front"}]},
-  {id:"2025-006",customer:"Noor Al-Zadjali",phone:"96789012",date:"2025-03-10",jackets:15,total:180,paid:180,status:11,supplier:"Al-Noor Tailoring",updated:"2025-04-10",payments:[{date:"2025-03-10",amount:180,by:"Admin",ref:"",note:"Cash full"}]},
-  {id:"2025-007",customer:"Salim Al-Amri",phone:"97890123",date:"2025-04-02",jackets:50,total:840,paid:300,status:3,supplier:"",updated:"2025-04-05",payments:[{date:"2025-04-02",amount:300,by:"Admin",ref:"TRF-003",note:"Partial deposit"}]},
-];
 
 const SEED_SUPPLIERS=[
   {id:"sup-1",name:"Al-Noor Tailoring",phone:"24123456",spec:"Jackets & Embroidery",unitPrice:12,payments:[]},
@@ -47,13 +40,6 @@ const SEED_USERS=[
 
 const ORDER_TYPES_EN=["Cotton Full","Full Leather","Cotton & Leather","Hoodie","Mix"];
 const ORDER_TYPES_AR=["قطن كامل","جلد كامل","قطن وجلد","هودي","مكس"];
-const JACKET_SIZES=["XS","S","M","L","XL","XXL","3XL","4XL","5XL","مقاس خاص"];
-const ERROR_SUB_STATUSES_AR=["تم استلامه من العميل","في المخزن","تم الإرسال للمصنع","في التعديل","انتهى التعديل","في انتظار الشحن","في المخزن (بعد المصنع)","تم إرساله للعميل","تم رفض الطلب","تمت المراجعة — للاسترجاع"];
-const ERROR_SUB_STATUSES_EN=["Received from Client","In Warehouse","Sent to Factory","Under Modification","Modification Done","Waiting for Shipping","In Warehouse (Post-Factory)","Sent to Client","Request Rejected","To Refund"];
-const ERROR_SUB_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#EF4444",bg:"#FEF2F2"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#64748B",bg:"#F1F5F9"},{color:"#BE185D",bg:"#FCE7F3"}];
-const ERROR_STATUSES_AR=["تم تسجيل الخطأ","بانتظار استلام الجاكيت من العميل","تم استلام الجاكيت","تم إرساله إلى المصنع","قيد التعديل","تم الانتهاء من التعديل","تم استلامه من المصنع","جاهز للتسليم","تم تسليمه إلى العميل","تم إغلاق الحالة","يحتاج إلى استبدال"];
-const ERROR_STATUSES_EN=["Error Registered","Waiting to Receive Jacket","Jacket Received","Sent to Factory","Under Modification","Modification Done","Received from Factory","Ready for Delivery","Delivered to Client","Case Closed","Needs Replacement"];
-const ERROR_STATUS_COLORS=[{color:"#6366F1",bg:"#EEF2FF"},{color:"#F59E0B",bg:"#FFFBEB"},{color:"#0EA5E9",bg:"#E0F2FE"},{color:"#8B5CF6",bg:"#F5F3FF"},{color:"#F97316",bg:"#FFF7ED"},{color:"#22C55E",bg:"#F0FDF4"},{color:"#14B8A6",bg:"#F0FDFA"},{color:"#2D7A4F",bg:"#E6F4EC"},{color:"#2D7A4F",bg:"#D1FAE5"},{color:"#94A3B8",bg:"#F1F5F9"},{color:"#DC2626",bg:"#FEF2F2"}];
 const EXPENSE_CATS_AR=["رواتب الموظفين","إيجار المصنع / المحل","مواد خام","مصاريف شحن وتوصيل","فواتير (كهرباء، نت...)","تسويق وإعلانات","مصاريف متنوعة"];
 const EXPENSE_CATS_EN=["Staff Salaries","Factory / Shop Rent","Raw Materials","Shipping & Delivery","Utilities","Marketing & Ads","Miscellaneous"];
 const EXPENSE_ICONS=["👤","🏭","🧵","🚚","💡","📣","📦"];
@@ -87,7 +73,7 @@ export default function App(){
   const [toast,setToast]=useState(null);
 
   // ── Data
-  const [orders,setOrders]=useState(SEED_ORDERS);
+  const [orders,setOrders]=useState([]);
   const [suppliers,setSuppliers]=useState(SEED_SUPPLIERS);
   const [users,setUsers]=useState(SEED_USERS);
   const [activityLog,setActivityLog]=useState([]);
@@ -190,6 +176,7 @@ export default function App(){
   const [urgentOnly,setUrgentOnly]=useState(false);
   // ── Jacket Errors
   const [jacketErrors,setJacketErrors]=useState([]);
+  const [jacketLoadError,setJacketLoadError]=useState("");
   const [selectedError,setSelectedError]=useState(null);
   const [dismissErrorTarget,setDismissErrorTarget]=useState(null);
   const [dismissErrorStatus,setDismissErrorStatus]=useState(0);
@@ -197,13 +184,6 @@ export default function App(){
   const dismissErrorLock=useRef(false);
   const [showNewError,setShowNewError]=useState(false);
   const [newErrorOrderId,setNewErrorOrderId]=useState(null);
-  const [newErrorForm,setNewErrorForm]=useState({jacketOwner:"",jacketType:"",jacketSize:"",affectedJackets:"1",errorDescription:"",errorImageUrl:""});
-  const [errorSearch,setErrorSearch]=useState("");
-  const [errorStatusFilter,setErrorStatusFilter]=useState(0);
-  const [errorDateFrom,setErrorDateFrom]=useState("");
-  const [errorDateTo,setErrorDateTo]=useState("");
-  const [showAddNote,setShowAddNote]=useState(false);
-  const [noteText,setNoteText]=useState("");
 
   // ── Print/Reports
   const [showPrint,setShowPrint]=useState(false);
@@ -376,18 +356,19 @@ export default function App(){
     const loadData=async()=>{
       let loadedUsers=null;
       try{
-        const {data:ords}=await supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false});
+        const {data:ords,error:ordersLoadError}=await supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false});
         const {data:sups}=await supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false});
         const {data:usrs}=await supabase.from("users").select("*").order("created_at",{ascending:true});
         const {data:sett}=await supabase.from("settings").select("*").eq("id","main").single();
         const {data:logs}=await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(500);
         const {data:exps}=await supabase.from("expenses").select("*").order("date",{ascending:false});
-        const {data:jerrs}=await supabase.from("jacket_errors").select("*").order("created_at",{ascending:false});
+        const {data:jerrs,error:reportsLoadError}=await supabase.from("jacket_errors").select("*").order("created_at",{ascending:false});
         const {data:supPays}=await supabase.from("supplier_account_payments").select("*").order("date",{ascending:false});
         const {data:finSettings}=await supabase.from("financial_settings").select("*").eq("id","main").single();
         const {data:reports}=await supabase.from("financial_reports").select("*").order("created_at",{ascending:false});
         const {data:refundRows}=await supabase.from("compensation_requests").select("*").order("requested_at",{ascending:false});
-        if(ords&&ords.length>0){
+        if(ordersLoadError||reportsLoadError)setJacketLoadError("تعذر تحميل بيانات الطلبات أو البلاغات. أعد المحاولة قبل التعديل / Orders or reports failed to load. Retry before editing");
+        if(ords){
           setOrders(ords.map(o=>({
             ...o,
             payments:(o.payments||[]).map(p=>({id:p.id,date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
@@ -435,7 +416,7 @@ export default function App(){
         if(jerrs)setJacketErrors(jerrs.map(e=>{
           const notes=parseStoredArray(e.notes);
           const savedCount=notes.find(n=>n?.type==="affected_jackets")?.value;
-          return {...e,affectedJackets:Number(savedCount)||Number(e.affected_jackets)||1,notes,statusHistory:parseStoredArray(e.status_history)};
+          return {...normalizeReport(e),affectedJackets:Number(savedCount)||Number(e.affected_jackets)||1};
         }));
         if(supPays)setSupPayments(supPays);
         if(finSettings){
@@ -446,7 +427,7 @@ export default function App(){
         }
         if(reports)setSavedReports(reports);
         if(refundRows)setRefunds(refundRows.map(r=>({...r,comments:parseStoredArray(r.comments),history:parseStoredArray(r.history)})));
-      }catch(e){console.error("Failed to load Supabase data",e);}
+      }catch(e){console.error("Failed to load Supabase data",e);setJacketLoadError("تعذر تحميل البيانات؛ أعد المحاولة / Data load failed; please retry");}
       try{
         const savedUserId=localStorage.getItem("thawb_user_id");
         if(savedUserId){
@@ -487,10 +468,10 @@ export default function App(){
   const openErrorEdit=error=>{
     adminEdit(rtl?"تعديل بلاغ الجاكيت":"Edit jacket report",[
       field("order_id","الطلب المرتبط","Linked order",{required:true,options:orders.map(o=>({value:o.id,label:`${o.id} · ${o.customer||o.phone}`}))}),
-      field("jacket_owner","صاحب الجاكيت","Jacket owner",{required:true}),field("jacket_type","نوع الجاكيت","Jacket type"),field("jacket_size","المقاس","Size"),
+      field("jacket_owner","صاحب الجاكيت","Jacket owner"),field("jacket_type","نوع الجاكيت","Jacket type"),field("jacket_size","المقاس","Size"),
       field("affected_jackets","عدد الجاكيتات المتأثرة","Affected jackets",{type:"number",min:1,step:1,required:true}),
-      field("error_description","وصف الخطأ","Error description",{type:"textarea",required:true}),field("error_image_url","رابط صورة الخطأ","Error image URL",{type:"url"}),
-      field("status","حالة البلاغ","Report status",{options:ERROR_STATUSES_EN.map((label,i)=>({value:i+1,label:rtl?ERROR_STATUSES_AR[i]:label}))})
+      field("error_description","وصف الخطأ","Error description",{type:"textarea"}),field("error_image_url","رابط صورة الخطأ","Error image URL",{type:"url"}),
+
     ],{...error,affected_jackets:error.affectedJackets??error.affected_jackets??1},async patch=>{
       const order=orders.find(o=>o.id===patch.order_id);
       if(!order)throw new Error(rtl?"اختر الطلب":"Select an order");
@@ -502,12 +483,17 @@ export default function App(){
     const notes=jacket?record.notes:record.errorNotes;
     adminEdit(rtl?"تعديل الملاحظة":"Edit note",[field("text","الملاحظة","Note",{type:"textarea",required:true})],notes[index],async patch=>{
       if(!patch.text.trim())throw new Error(rtl?"اكتب الملاحظة":"Enter a note");
-      const next=notes.map((n,i)=>i===index?{...n,text:patch.text,edited_by:currentUser.name,edited_at:new Date().toISOString()}:n);
-      await updateRecord(supabase,jacket?"jacket_errors":"orders",record.id,jacket?{notes:JSON.stringify(next)}:{error_notes:next});
-      if(jacket)setJacketErrors(prev=>prev.map(e=>e.id===record.id?{...e,notes:next}:e));
-      else {
-        setOrders(prev=>prev.map(o=>o.id===record.id?{...o,errorNotes:next}:o));
-        if(selectedError?.id===record.id)setSelectedError(o=>({...o,errorNotes:next}));
+      if(jacket){
+        const saved=await saveJacketNoteEdit(supabase,record,index,patch.text,currentUser.name);
+        setJacketErrors(prev=>prev.map(e=>e.id===record.id?saved:e));
+      }else{
+        const next=notes.map((n,i)=>i===index?{...n,text:patch.text,edited_by:currentUser.name,edited_at:new Date().toISOString()}:n);
+        let query=supabase.from("orders").update({error_notes:next}).eq("id",record.id);
+        query=record.error_notes==null?query.is("error_notes",null):query.eq("error_notes",JSON.stringify(record.error_notes));
+        const {data,error}=await query.select().single();
+        if(error)throw error;if(!data)throw new Error("تغيرت الملاحظات، حدّث الصفحة / Notes changed; refresh the page");
+        setOrders(prev=>prev.map(o=>o.id===record.id?{...o,errorNotes:next,error_notes:data.error_notes}:o));
+        if(selectedError?.id===record.id)setSelectedError(o=>({...o,errorNotes:next,error_notes:data.error_notes}));
       }
     });
   };
@@ -591,20 +577,6 @@ export default function App(){
     showT(val?(rtl?"⚡ تم تعليم الطلب كمستعجل":"⚡ Order marked urgent"):(rtl?"تم إلغاء التعليم":"Urgent removed"));
   };
 
-  const updateOrderSubStatus=async(o,subSt)=>{
-    if(!can("errors"))return;
-    const d=new Date().toISOString().slice(0,10);
-    try{
-      const {error}=await supabase.from("orders").update({error_sub_status:subSt,updated:d}).eq("id",o.id);
-      if(error)throw error;
-    }catch(e){showT((rtl?"تعذر حفظ التعديل: ":"Could not save changes: ")+e.message,"error");return;}
-    setOrders(prev=>prev.map(x=>x.id!==o.id?x:{...x,errorSubStatus:subSt,updated:d}));
-    if(selectedError?.id===o.id)setSelectedError(s=>({...s,errorSubStatus:subSt}));
-    const label=subSt>0?(rtl?ERROR_SUB_STATUSES_AR[subSt-1]:ERROR_SUB_STATUSES_EN[subSt-1]):"--";
-    logActivity(rtl?"تحديث حالة الخطأ الفرعية":"Error sub-status updated",`${o.id} → ${label}`);
-    showT(rtl?"تم تحديث الحالة الفرعية":"Sub-status updated");
-  };
-
   const openDismissError=(order)=>{
     setDismissErrorTarget(order);
     setDismissErrorStatus(order.status===13?0:Number(order.status));
@@ -626,20 +598,6 @@ export default function App(){
     }catch(error){
       showT((rtl?"تعذرت إزالة الطلب: ":"Could not remove order: ")+error.message,"error");
     }finally{dismissErrorLock.current=false;setDismissingError(false);}
-  };
-
-  const addErrorNote=async(orderId)=>{
-    if(!can("errors"))return;
-    if(!noteText.trim()){showT(rtl?"اكتب ملاحظة":"Write a note","error");return;}
-    const now=new Date().toISOString();
-    const note={text:noteText.trim(),by:currentUser?.name||"Admin",at:now};
-    const order=orders.find(o=>o.id===orderId);
-    const newNotes=[...(order?.errorNotes||[]),note];
-    try{await supabase.from("orders").update({error_notes:newNotes}).eq("id",orderId);}catch(e){}
-    setOrders(prev=>prev.map(x=>x.id!==orderId?x:{...x,errorNotes:newNotes}));
-    if(selectedError?.id===orderId)setSelectedError(s=>({...s,errorNotes:newNotes}));
-    setNoteText("");setShowAddNote(false);
-    showT(rtl?"تمت إضافة الملاحظة":"Note added");
   };
 
   const logActivity=(action,details)=>{
@@ -758,80 +716,6 @@ export default function App(){
   };
 
   // ── Jacket Errors
-  const saveNewJacketError=async()=>{
-    if(!can("errors"))return;
-    if(!newErrorForm.jacketOwner||!newErrorForm.errorDescription){showT(rtl?"يرجى تعبئة الحقول المطلوبة":"Fill required fields","error");return;}
-    const order=orders.find(o=>o.id===newErrorOrderId);
-    const orderJackets=Math.max(1,Number(order?.jackets)||1);
-    const affectedJackets=Number(newErrorForm.affectedJackets);
-    if(!Number.isInteger(affectedJackets)||affectedJackets<1||affectedJackets>orderJackets){showT(rtl?`عدد الجاكيتات المتضررة يجب أن يكون بين 1 و ${orderJackets}`:`Affected jackets must be between 1 and ${orderJackets}`,"error");return;}
-    const now=new Date().toISOString();
-    const d=now.slice(0,10);
-    const firstStatus={status:1,by:currentUser?.name||"Admin",at:now,note:""};
-    const entry={order_id:newErrorOrderId,customer_name:order?.customer||"",customer_phone:order?.phone||"",jacket_owner:newErrorForm.jacketOwner,jacket_type:newErrorForm.jacketType,jacket_size:newErrorForm.jacketSize,affected_jackets:affectedJackets,error_description:newErrorForm.errorDescription,error_image_url:newErrorForm.errorImageUrl,status:1,notes:[],status_history:[firstStatus],created_at:now,updated_at:now};
-    try{
-      let {data,error}=await supabase.from("jacket_errors").insert({...entry,status_history:JSON.stringify([firstStatus]),notes:JSON.stringify([])}).select().single();
-      if(error&&String(error.message||"").includes("affected_jackets")){
-        const {affected_jackets:unused,...legacyEntry}=entry;
-        void unused;
-        const countNote={type:"affected_jackets",value:affectedJackets,by:currentUser?.name||"Admin",at:now};
-        ({data,error}=await supabase.from("jacket_errors").insert({...legacyEntry,status_history:JSON.stringify([firstStatus]),notes:JSON.stringify([countNote])}).select().single());
-      }
-      if(error)throw error;
-      if(data)entry.id=data.id;
-    }catch(e){
-      console.error("Failed to save jacket error",e);
-      showT(rtl?"تعذّر حفظ بلاغ الخطأ. حاول مرة أخرى.":"Could not save the error report. Please try again.","error");
-      return;
-    }
-    setJacketErrors(prev=>[{...entry,affectedJackets,statusHistory:[firstStatus]},...prev]);
-    // تغيير حالة الطلب تلقائياً لـ "فيه خطأ" (13) إذا لم يكن كذلك مسبقاً
-    if(order&&order.status!==13){
-      try{await supabase.from("orders").update({status:13,updated:d}).eq("id",newErrorOrderId);}catch(e){}
-      setOrders(prev=>prev.map(o=>o.id!==newErrorOrderId?o:{...o,status:13,updated:d}));
-      if(selected?.id===newErrorOrderId)setSelected(s=>({...s,status:13,updated:d}));
-      logActivity(rtl?"تحويل تلقائي لحالة خطأ":"Auto set to Has Issue",`${newErrorOrderId}`);
-    }
-    logActivity(rtl?"تسجيل خطأ جاكيت":"Jacket error registered",`${newErrorOrderId} — ${affectedJackets}/${orderJackets} — ${newErrorForm.jacketOwner}`);
-    setNewErrorForm({jacketOwner:"",jacketType:"",jacketSize:"",affectedJackets:"1",errorDescription:"",errorImageUrl:""});
-    setShowNewError(false);setNewErrorOrderId(null);
-    showT(rtl?"✅ تم تسجيل الخطأ وتحويل الطلب لحالة خطأ":"✅ Error registered & order flagged");
-  };
-
-  const updateErrorStatus=async(err,newStatus)=>{
-    if(!can("errors"))return;
-    const now=new Date().toISOString();
-    const histEntry={status:newStatus,by:currentUser?.name||"Admin",at:now,note:""};
-    const newHistory=[...(err.statusHistory||[]),histEntry];
-    try{await supabase.from("jacket_errors").update({status:newStatus,status_history:JSON.stringify(newHistory),updated_at:now}).eq("id",err.id);}catch(e){}
-    setJacketErrors(prev=>prev.map(x=>x.id!==err.id?x:{...x,status:newStatus,statusHistory:newHistory,updated_at:now}));
-    if(selectedError?.id===err.id)setSelectedError(s=>({...s,status:newStatus,statusHistory:newHistory,updated_at:now}));
-    logActivity(rtl?"تحديث حالة خطأ":"Error status updated",`${err.order_id} — ${rtl?ERROR_STATUSES_AR[newStatus-1]:ERROR_STATUSES_EN[newStatus-1]}`);
-    showT(rtl?"تم تحديث الحالة":"Status updated");
-  };
-
-  const addJacketNote=async()=>{
-    if(!can("errors"))return;
-    if(!noteText.trim()){showT(rtl?"اكتب ملاحظة":"Write a note","error");return;}
-    const now=new Date().toISOString();
-    const note={text:noteText.trim(),by:currentUser?.name||"Admin",at:now};
-    const newNotes=[...(selectedError.notes||[]),note];
-    try{await supabase.from("jacket_errors").update({notes:JSON.stringify(newNotes),updated_at:now}).eq("id",selectedError.id);}catch(e){}
-    setJacketErrors(prev=>prev.map(x=>x.id!==selectedError.id?x:{...x,notes:newNotes,updated_at:now}));
-    setSelectedError(s=>({...s,notes:newNotes,updated_at:now}));
-    setNoteText("");setShowAddNote(false);
-    showT(rtl?"تمت إضافة الملاحظة":"Note added");
-  };
-
-  const deleteJacketError=async(err)=>{
-    if(!can("errors"))return;
-    if(!window.confirm(rtl?"حذف هذا السجل؟":"Delete this record?"))return;
-    try{await supabase.from("jacket_errors").delete().eq("id",err.id);}catch(e){}
-    setJacketErrors(prev=>prev.filter(x=>x.id!==err.id));
-    if(selectedError?.id===err.id){setSelectedError(null);setPage("errors");}
-    showT(rtl?"تم الحذف":"Deleted");
-  };
-
   // ── Login
   const doLogin=()=>{
     const u=users.find(x=>x.email===loginEmail&&x.pass===loginPass);
@@ -1501,7 +1385,7 @@ export default function App(){
               {can("orders")&&<button onClick={()=>toggleUrgent(o)} style={{background:o.isUrgent?"#FFF7ED":"transparent",border:"2px solid "+(o.isUrgent?"#F97316":bc),borderRadius:8,padding:"8px 16px",fontWeight:800,cursor:"pointer",color:o.isUrgent?"#F97316":tm,fontSize:13}}>
                 ⚡ {o.isUrgent?(rtl?"إلغاء المستعجل":"Remove Urgent"):(rtl?"تعليم مستعجل":"Mark Urgent")}
               </button>}
-              {can("errors")&&<button onClick={()=>{setNewErrorOrderId(o.id);setNewErrorForm({jacketOwner:"",jacketType:o.orderType||"",jacketSize:"",errorDescription:"",errorImageUrl:""});setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
+              {can("errors")&&<button onClick={()=>{setNewErrorOrderId(o.id);setShowNewError(true);}} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FCA5A5",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>🔧 {rtl?"تسجيل خطأ":"Log Error"}</button>}
               {can("refunds")&&<button onClick={()=>openRefundRequest(o.id)} style={{background:"#FFF7ED",color:"#9A3412",border:"1px solid #FDBA74",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>↩️ {rtl?"طلب تعويض":"Refund Request"}</button>}
               <button onClick={()=>{setPrintO(o);setShowPrint(true);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:700,cursor:"pointer"}}>🖨️ {t.printOrder}</button>
               {o.status===10&&<button className="label-print-action" onClick={()=>openLabelPrint(o)} style={{background:"#111827",color:"#fff",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:800,cursor:"pointer"}}>🏷️ {rtl?"طباعة ليبل الأوردر":"Print Order Label"}</button>}
@@ -1799,145 +1683,18 @@ export default function App(){
             ))}
           </div>
         </div>}
-        {/* JACKET ERRORS — AUTO FROM STATUS 13 */}
-        {page==="errors"&&can("errors")&&(()=>{
-          const subLabel=(s)=>s>0?(rtl?ERROR_SUB_STATUSES_AR[s-1]:ERROR_SUB_STATUSES_EN[s-1]):(rtl?"لم تُحدَّد بعد":"Not set yet");
-          const subColor=(s)=>s>0?ERROR_SUB_COLORS[s-1]:{color:"#94A3B8",bg:"#F1F5F9"};
-          const errorOrders=orders.filter(o=>isErrorOrder(o,jacketErrors));
-          const filtErrOrd=errorOrders.filter(o=>{
-            const q=errorSearch.toLowerCase();
-            if(q&&!o.id.toLowerCase().includes(q)&&!o.customer?.toLowerCase().includes(q)&&!o.phone?.includes(q))return false;
-            if(errorStatusFilter&&o.errorSubStatus!==errorStatusFilter)return false;
-            return true;
-          }).sort((a,b)=>new Date(b.updated||b.date)-new Date(a.updated||a.date));
-          if(selectedError){
-            const o=orders.find(x=>x.id===selectedError.id)||selectedError;
-            const jErrs=jacketErrors.filter(e=>e.order_id===o.id);
-            return <div>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20,flexWrap:"wrap"}}>
-                <button onClick={()=>setSelectedError(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
-                <h1 style={{fontSize:20,fontWeight:800,margin:0,flex:1}}>🔧 {rtl?"طلب فيه خطأ":"Error Order"} — {o.id}</h1>
-                <details style={{position:"relative"}}>
-                  <summary aria-label={rtl?"خيارات الطلب":"Order options"} title={rtl?"خيارات الطلب":"Order options"} style={{listStyle:"none",cursor:"pointer",color:tm,padding:"4px 10px",fontSize:22,lineHeight:1,borderRadius:6}}>⋯</summary>
-                  <div style={{position:"absolute",insetInlineEnd:0,top:"100%",marginTop:6,minWidth:190,background:bgC,border:"1px solid "+bc,borderRadius:8,padding:4,zIndex:10,boxShadow:"0 4px 12px rgba(26,39,68,0.1)"}}>
-                    <button onClick={e=>{e.currentTarget.closest("details").open=false;openDismissError(o);}} style={{display:"block",width:"100%",background:"transparent",color:tp,border:"none",borderRadius:6,padding:"9px 12px",textAlign:"start",cursor:"pointer",fontSize:12}}>{rtl?"إزالة من قائمة الأخطاء":"Remove from Errors"}</button>
-                  </div>
-                </details>
-                <button onClick={()=>{setSelected(o);setPage("detail");setSelectedError(null);}} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,cursor:"pointer",fontSize:13}}>📋 {rtl?"فتح الطلب الأصلي":"Open Original Order"}</button>
-              </div>
-              <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>👤 {rtl?"معلومات الطلب":"Order Info"}</h3>
-                  {[[rtl?"رقم الطلب":"Order ID",o.id],[rtl?"اسم العميل":"Customer",o.customer||"--"],[rtl?"رقم الهاتف":"Phone",o.phone],[rtl?"تاريخ الطلب":"Order Date",o.date],[rtl?"عدد الجاكيتات":"Jackets",o.jackets],[rtl?"نوع الجاكيت":"Type",o.orderType||"--"],[rtl?"المورد":"Supplier",o.supplier||"--"],[rtl?"آخر تحديث":"Last Update",o.updated||"--"]].map(([k,v])=>(
-                    <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid "+bc}}>
-                      <span style={{fontSize:12,color:tm}}>{k}</span><span style={{fontSize:13,fontWeight:600}}>{v}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔄 {rtl?"الحالة الفرعية":"Sub-Status"}</h3>
-                  <div style={{marginBottom:14}}>
-                    {o.errorSubStatus>0?<span style={{background:subColor(o.errorSubStatus).bg,color:subColor(o.errorSubStatus).color,borderRadius:20,padding:"5px 14px",fontWeight:700,fontSize:13}}>{subLabel(o.errorSubStatus)}</span>:<span style={{color:tm,fontSize:13}}>{rtl?"لم تُحدَّد بعد":"Not set yet"}</span>}
-                  </div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                    {currentUser?.role==="admin"&&<button onClick={()=>updateOrderSubStatus(o,0)} style={{border:"1px solid "+bc,borderRadius:20,padding:"5px 12px",cursor:"pointer",background:bgC,color:tm}}>{rtl?"إلغاء تحديد الحالة الفرعية":"Clear sub-status"}</button>}
-                    {ERROR_SUB_STATUSES_AR.map((_,i)=>{
-                      const idx=i+1,sc2=ERROR_SUB_COLORS[i];
-                      return <button key={idx} onClick={()=>updateOrderSubStatus(o,idx)} style={{background:o.errorSubStatus===idx?sc2.color:sc2.bg,color:o.errorSubStatus===idx?"#fff":sc2.color,border:"none",borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]}</button>;
-                    })}
-                  </div>
-                </div>
-              </div>
-              <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-                <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                    <h3 style={{margin:0,fontSize:13,fontWeight:700}}>💬 {rtl?"الملاحظات":"Notes"}</h3>
-                    <button onClick={()=>setShowAddNote(true)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontWeight:700,cursor:"pointer",fontSize:12}}>+ {rtl?"إضافة ملاحظة":"Add Note"}</button>
-                  </div>
-                  {(o.errorNotes||[]).length===0?<p style={{color:tm,fontSize:13,margin:0}}>{rtl?"لا توجد ملاحظات بعد":"No notes yet"}</p>:
-                  [...(o.errorNotes||[])].reverse().map((n,i)=>(
-                    <div key={i} style={{background:C.slateLight,borderRadius:8,padding:"10px 12px",marginBottom:8}}>
-                      <p style={{margin:"0 0 6px",fontSize:13,lineHeight:1.5}}>{n.text}</p>{editButton(()=>openNoteEdit(o,o.errorNotes.length-1-i))}
-                      <div style={{fontSize:11,color:tm}}>{n.by} · {new Date(n.at).toLocaleString(rtl?"ar-OM":"en-GB")}</div>
-                    </div>
-                  ))}
-                  {showAddNote&&<div style={{marginTop:12}}>
-                    <textarea value={noteText} onChange={e2=>setNoteText(e2.target.value)} rows={3} placeholder={rtl?"اكتب ملاحظتك هنا...":"Write your note..."} style={{...IS,width:"100%",resize:"vertical",marginBottom:8}}/>
-                    <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>addErrorNote(o.id)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontWeight:700,cursor:"pointer",flex:1}}>{rtl?"حفظ":"Save"}</button>
-                      <button onClick={()=>{setShowAddNote(false);setNoteText("");}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 16px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-                    </div>
-                  </div>}
-                </div>
-                {jErrs.length>0&&<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:20}}>
-                  <h3 style={{margin:"0 0 12px",fontSize:13,fontWeight:700}}>🔧 {rtl?"جاكيتات مسجّلة تفصيلياً":"Detailed Jacket Records"} ({jErrs.length})</h3>
-                  {jErrs.map((e,i)=>{
-                    const sc2=ERROR_STATUS_COLORS[e.status-1]||ERROR_STATUS_COLORS[0];
-                    return <div key={i} style={{background:C.slateLight,borderRadius:10,padding:"10px 14px",marginBottom:8}}>
-                      <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:4}}><b>{e.jacket_owner}</b>{editButton(()=>openErrorEdit(e))}</div>
-                      <p style={{fontSize:13}}>{e.error_description}</p>
-                      {(e.notes||[]).map((note,idx)=>note.type!=="affected_jackets"&&<div key={idx} style={{marginBottom:8,fontSize:12}}>{note.text} {editButton(()=>openNoteEdit(e,idx,true))}</div>)}
-                      <div style={{fontSize:12,color:tm,marginBottom:6}}>{e.jacket_type||"--"} · {e.jacket_size||"--"}</div>
-                      <div style={{fontSize:12,fontWeight:800,color:"#DC2626",marginBottom:8}}>{rtl?"الجاكيتات المتضررة":"Affected jackets"}: {Number(e.affectedJackets||e.affected_jackets)||1} {rtl?"من":"of"} {o.jackets}</div>
-                      <span style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rtl?ERROR_STATUSES_AR[e.status-1]:ERROR_STATUSES_EN[e.status-1]}</span>
-                    </div>;
-                  })}
-                </div>}
-              </div>
-            </div>;
-          }
-          return <div>
-            <div style={{marginBottom:16}}>
-              <h1 style={{fontSize:22,fontWeight:800,margin:"0 0 4px"}}>🔧 {rtl?"الطلبات التي بها أخطاء":"Orders with Errors"}</h1>
-              <div style={{fontSize:13,color:tm}}>{rtl?"جميع الطلبات التي لها سجل خطأ، بما فيها الحالات المحلولة":"All orders with an error record, including resolved cases"} · <b style={{color:"#DC2626"}}>{errorOrders.length}</b> {rtl?"طلب":"orders"}</div>
-            </div>
-            <div style={{display:"flex",gap:10,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-              <input value={errorSearch} onChange={e=>setErrorSearch(e.target.value)} placeholder={rtl?"بحث برقم الطلب أو العميل...":"Search by order or customer..."} style={{...IS,minWidth:220,width:"auto"}}/>
-              <select value={errorStatusFilter} onChange={e=>setErrorStatusFilter(Number(e.target.value))} style={{...IS,width:"auto"}}>
-                <option value={0}>{rtl?"جميع الحالات الفرعية":"All Sub-Statuses"}</option>
-                <option value={-1}>{rtl?"لم تُحدَّد بعد":"Not set yet"}</option>
-                {ERROR_SUB_STATUSES_AR.map((s,i)=><option key={i} value={i+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i]}</option>)}
-              </select>
-              {(errorSearch||errorStatusFilter)&&<button onClick={()=>{setErrorSearch("");setErrorStatusFilter(0);}} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"8px 14px",cursor:"pointer",color:tm}}>{rtl?"مسح":"Clear"}</button>}
-            </div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-              {ERROR_SUB_STATUSES_AR.map((_,i)=>{const cnt=errorOrders.filter(o=>o.errorSubStatus===i+1).length;if(!cnt)return null;const sc2=ERROR_SUB_COLORS[i];return <span key={i} style={{background:sc2.bg,color:sc2.color,borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?ERROR_SUB_STATUSES_AR[i]:ERROR_SUB_STATUSES_EN[i]} ({cnt})</span>;})}
-              {errorOrders.filter(o=>!o.errorSubStatus).length>0&&<span style={{background:"#F1F5F9",color:"#94A3B8",borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:700}}>{rtl?"لم تُحدَّد":"Not set"} ({errorOrders.filter(o=>!o.errorSubStatus).length})</span>}
-            </div>
-            {filtErrOrd.length===0?<div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:40,textAlign:"center",color:tm}}><div style={{fontSize:32,marginBottom:10}}>✅</div><p style={{fontSize:14,fontWeight:600,margin:0}}>{rtl?"لا توجد طلبات بها أخطاء":"No error orders found"}</p></div>:
-            <div style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden"}}>
-              <div style={{overflowX:"auto"}}>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                  <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>
-                    {[rtl?"رقم الطلب":"Order",rtl?"العميل":"Customer",rtl?"المورد":"Supplier",rtl?"المتضررة / الإجمالي":"Affected / Total",rtl?"النوع":"Type",rtl?"الحالة الفرعية":"Sub-Status",rtl?"الملاحظات":"Notes",rtl?"آخر تحديث":"Updated",rtl?"الإجراء":"Action"].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"right",fontWeight:700,fontSize:11,color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {filtErrOrd.map((o,i)=>{
-                      const sc2=subColor(o.errorSubStatus);
-                      const affected=Math.min(Number(o.jackets)||0,jacketErrors.filter(e=>e.order_id===o.id).reduce((sum,e)=>sum+(Number(e.affectedJackets||e.affected_jackets)||1),0));
-                      return <tr key={o.id} style={{borderTop:"1px solid "+bc,background:i%2===0?"transparent":"rgba(0,0,0,0.01)"}}>
-                        <td style={{padding:"12px 14px",fontWeight:700,color:"#DC2626"}}>{o.id}</td>
-                        <td style={{padding:"12px 14px"}}><div style={{fontWeight:600}}>{o.customer||"--"}</div><div style={{fontSize:11,color:tm}}>{o.phone}</div></td>
-                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.supplier||"--"}</td>
-                        <td style={{padding:"12px 14px",textAlign:"center",fontWeight:800,color:"#DC2626"}}>{affected} / {o.jackets}</td>
-                        <td style={{padding:"12px 14px",color:tm,fontSize:12}}>{o.orderType||"--"}</td>
-                        <td style={{padding:"12px 14px"}}>
-                          <select value={o.errorSubStatus||0} onChange={e2=>updateOrderSubStatus(o,Number(e2.target.value))} style={{background:sc2.bg,color:sc2.color,border:"1px solid "+sc2.color,borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                            <option value={0}>{rtl?"-- اختر --":"-- Select --"}</option>
-                            {ERROR_SUB_STATUSES_AR.map((s,i2)=><option key={i2} value={i2+1}>{rtl?s:ERROR_SUB_STATUSES_EN[i2]}</option>)}
-                          </select>
-                        </td>
-                        <td style={{padding:"12px 14px",textAlign:"center"}}><span style={{background:(o.errorNotes||[]).length>0?"#EEF2FF":"transparent",color:"#6366F1",borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:700}}>{(o.errorNotes||[]).length>0?`💬 ${(o.errorNotes||[]).length}`:""}</span></td>
-                        <td style={{padding:"12px 14px",color:tm,fontSize:12,whiteSpace:"nowrap"}}>{o.updated||o.date||"--"}</td>
-                        <td style={{padding:"12px 14px"}}><button onClick={()=>setSelectedError(o)} style={{background:"#202F4D",color:"#fff",border:"none",borderRadius:6,padding:"5px 12px",cursor:"pointer",fontSize:12,fontWeight:700}}>{rtl?"تفاصيل":"Details"}</button></td>
-                      </tr>;
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>}
-          </div>;
-        })()}
+        {(page==="errors"&&can("errors")||showNewError)&&<div style={page!=="errors"?{display:"contents"}:undefined}>
+          <JacketErrors loadError={jacketLoadError} orders={orders} reports={jacketErrors} setReports={setJacketErrors} client={supabase} user={currentUser} rtl={rtl} dark={dm}
+            onRegistered={async order=>{
+              if(order.status===13)return;
+              try{
+                const saved=await updateRecord(supabase,"orders",order.id,{status:13,updated:new Date().toISOString().slice(0,10)});
+                setOrders(prev=>prev.map(o=>o.id===order.id?{...o,status:saved.status,updated:saved.updated}:o));
+                if(selected?.id===order.id)setSelected(o=>({...o,status:saved.status,updated:saved.updated}));
+              }catch(error){showT((rtl?"تم حفظ البلاغ، وتعذر تحديث حالة الطلب: ":"Report saved; order status could not be updated: ")+error.message,"error");}
+            }} modalOnly={page!=="errors"} onEdit={openErrorEdit} onEditNote={openNoteEdit} onDismiss={openDismissError} newOrderId={showNewError?newErrorOrderId:null} onCloseNew={()=>{setShowNewError(false);setNewErrorOrderId(null);}}
+            onOpenOrder={o=>{setSelected(o);setPage("detail");}} notify={showT}/>
+        </div>}
 
                 {/* EXPENSES */}
         {page==="expenses"&&can("expenses")&&(()=>{
@@ -2609,47 +2366,6 @@ export default function App(){
           </div>
         </div>
       </div>}
-      {/* NEW JACKET ERROR MODAL */}
-      {showNewError&&newErrorOrderId&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&setShowNewError(false)}>
-        <div style={{background:bgC,borderRadius:16,padding:32,width:520,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
-          <h2 style={{margin:"0 0 6px",fontSize:18,fontWeight:800}}>🔧 {rtl?"تسجيل خطأ جاكيت":"Register Jacket Error"}</h2>
-          <p style={{color:tm,fontSize:13,margin:"0 0 20px"}}>{rtl?"الطلب:":"Order:"} <b>{newErrorOrderId}</b></p>
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"اسم صاحب الجاكيت *":"Jacket Owner Name *"}</label>
-              <input value={newErrorForm.jacketOwner} onChange={e=>setNewErrorForm(p=>({...p,jacketOwner:e.target.value}))} placeholder={rtl?"اسم الطالب / الشخص":"Student / Person name"} style={IS}/>
-            </div>
-            <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"نوع الجاكيت":"Jacket Type"}</label>
-                <select value={newErrorForm.jacketType} onChange={e=>setNewErrorForm(p=>({...p,jacketType:e.target.value}))} style={IS}>
-                  <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
-                  {ORDER_TYPES_EN.map((tp2,i)=><option key={i} value={ORDER_TYPES_EN[i]}>{rtl?ORDER_TYPES_AR[i]:tp2}</option>)}
-                </select>
-              </div>
-              <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"المقاس":"Size"}</label>
-                <select value={newErrorForm.jacketSize} onChange={e=>setNewErrorForm(p=>({...p,jacketSize:e.target.value}))} style={IS}>
-                  <option value="">{rtl?"-- اختر --":"-- Select --"}</option>
-                  {JACKET_SIZES.map(s=><option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-            </div>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"عدد الجاكيتات المتضررة *":"Affected Jackets *"}</label>
-              <input type="number" min="1" max={Math.max(1,Number(orders.find(o=>o.id===newErrorOrderId)?.jackets)||1)} step="1" value={newErrorForm.affectedJackets} onChange={e=>setNewErrorForm(p=>({...p,affectedJackets:e.target.value}))} style={IS}/>
-              <div style={{fontSize:11,color:tm,marginTop:5}}>{rtl?"من إجمالي":"Out of"} <b>{orders.find(o=>o.id===newErrorOrderId)?.jackets||0}</b> {rtl?"جاكيت في الطلب":"jackets in this order"}</div>
-            </div>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"وصف الخطأ *":"Error Description *"}</label>
-              <textarea value={newErrorForm.errorDescription} onChange={e=>setNewErrorForm(p=>({...p,errorDescription:e.target.value}))} rows={3} placeholder={rtl?"اشرح طبيعة الخطأ بالتفصيل...":"Describe the error in detail..."} style={{...IS,resize:"vertical"}}/>
-            </div>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"رابط صورة الخطأ (اختياري)":"Error Image URL (optional)"}</label>
-              <input value={newErrorForm.errorImageUrl} onChange={e=>setNewErrorForm(p=>({...p,errorImageUrl:e.target.value}))} placeholder="https://..." style={IS}/>
-            </div>
-          </div>
-          <div style={{display:"flex",gap:10,marginTop:24,justifyContent:"flex-end"}}>
-            <button onClick={()=>setShowNewError(false)} style={{border:"1px solid "+bc,background:"transparent",borderRadius:8,padding:"10px 20px",cursor:"pointer",color:tp}}>{t.cancel}</button>
-            <button onClick={saveNewJacketError} style={{background:"#DC2626",color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,cursor:"pointer"}}>{rtl?"تسجيل الخطأ":"Register Error"}</button>
-          </div>
-        </div>
-      </div>}
-
       {showNew&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={e=>e.target===e.currentTarget&&(setShowNew(false),setDupWarning(null))}>
         <div style={{background:bgC,borderRadius:16,padding:32,width:480,maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto"}}>
           <h2 style={{margin:"0 0 20px",fontSize:18,fontWeight:800}}>{t.createOrder}</h2>
@@ -2658,14 +2374,14 @@ export default function App(){
             <span style={{fontWeight:800,color:"#E05E5C",fontSize:15,fontFamily:"monospace"}}>{genOrderId()}</span>
           </div>
           <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.customerName}</label><input value={newO.customer} onChange={e=>setNewO(p=>({...p,customer:e.target.value}))} style={IS}/></div>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.phoneNumber}</label><input value={newO.phone} onChange={e=>setNewO(p=>({...p,phone:e.target.value}))} style={IS}/></div>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.numJackets}</label><input type="number" value={newO.jackets} onChange={e=>setNewO(p=>({...p,jackets:e.target.value}))} style={IS}/></div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.customerName}</label><input autoFocus aria-label={t.customerName} value={newO.customer} onChange={e=>setNewO(p=>({...p,customer:e.target.value}))} style={IS}/></div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.phoneNumber}</label><input aria-label={t.phoneNumber} value={newO.phone} onChange={e=>setNewO(p=>({...p,phone:e.target.value}))} style={IS}/></div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.numJackets}</label><input type="number" aria-label={t.numJackets} value={newO.jackets} onChange={e=>setNewO(p=>({...p,jackets:e.target.value}))} style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.extras}</label><input type="number" value={newO.extras} onChange={e=>setNewO(p=>({...p,extras:e.target.value}))} placeholder="0" style={IS}/></div>
             <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.deliveryArea}</label><input value={newO.deliveryArea} onChange={e=>setNewO(p=>({...p,deliveryArea:e.target.value}))} style={IS}/></div>
             <div><label htmlFor="newO-delivery-paid" style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.deliveryPayment}</label><select id="newO-delivery-paid" value={String(newO.deliveryPaid)} onChange={e=>setNewO(p=>({...p,deliveryPaid:e.target.value==="true"}))} style={IS}><option value="true">{t.deliveryPaid}</option><option value="false">{t.deliveryUnpaid}</option></select></div>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.totalAmount}</label><input type="number" value={newO.total} onChange={e=>setNewO(p=>({...p,total:e.target.value}))} style={IS}/></div>
-            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.paidAmount}</label><input type="number" value={newO.paid} onChange={e=>setNewO(p=>({...p,paid:e.target.value}))} style={IS}/></div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.totalAmount}</label><input type="number" aria-label={t.totalAmount} value={newO.total} onChange={e=>setNewO(p=>({...p,total:e.target.value}))} style={IS}/></div>
+            <div><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{t.paidAmount}</label><input type="number" aria-label={t.paidAmount} value={newO.paid} onChange={e=>setNewO(p=>({...p,paid:e.target.value}))} style={IS}/></div>
             <div>
               <label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{rtl?"نوع الطلب":"Order Type"}</label>
               <select value={newO.orderType} onChange={e=>setNewO(p=>({...p,orderType:e.target.value}))} style={IS}>
@@ -2779,7 +2495,7 @@ export default function App(){
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
             {[[t.payAmount,"payamt","number"],[t.refNumber,"payref","text"],[t.notes,"paynote","text"]].map(([label,id,type])=>(
               <div key={id}><label style={{display:"block",fontSize:12,fontWeight:600,color:tm,marginBottom:5}}>{label}</label>
-              <input type={type} id={id} placeholder={id==="paynote"?t.notesPlaceholder:id==="payamt"?"0.000":""} style={IS}/></div>
+              <input autoFocus={id==="payamt"} aria-label={label} type={type} id={id} placeholder={id==="paynote"?t.notesPlaceholder:id==="payamt"?"0.000":""} style={IS}/></div>
             ))}
           </div>
           <div style={{display:"flex",gap:10,marginTop:20,justifyContent:"flex-end"}}>
