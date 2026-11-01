@@ -323,10 +323,13 @@ export default function JacketErrors({
     }
   }
   function imageFields(value, setter) {
-    return <div><label className="je-upload">＋ {text('إرفاق صور', 'Attach images')}<input disabled={busy || imageBusy} type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={e => {
+    return <div><div className="je-actions"><label className="je-upload">📷 {text('التقاط صورة', 'Take photo')}<input disabled={busy || imageBusy} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={e => {
+          if (e.target.files?.length) attach(e.target.files, setter);
+          e.target.value = '';
+        }} /></label><label className="je-upload">＋ {text('إرفاق صور', 'Attach images')}<input disabled={busy || imageBusy} type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={e => {
           attach(e.target.files, setter);
           e.target.value = '';
-        }} /></label>{imageBusy && <p>{text('جارٍ تجهيز الصور…', 'Preparing images…')}</p>}<div className="je-thumbs">{(value.photos || []).map((p, i) => <div key={i}><img src={p.url} alt={p.caption} /><input aria-label={text('تعليق الصورة', 'Image caption')} value={p.caption} onChange={e => setter(prev => ({
+        }} /></label></div>{imageBusy && <p>{text('جارٍ تجهيز الصور…', 'Preparing images…')}</p>}<div className="je-thumbs">{(value.photos || []).map((p, i) => <div key={i}><img src={p.url} alt={p.caption} /><input aria-label={text('تعليق الصورة', 'Image caption')} value={p.caption} onChange={e => setter(prev => ({
             ...prev,
             photos: prev.photos.map((x, j) => j === i ? {
               ...x,
