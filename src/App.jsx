@@ -1,3 +1,4 @@
+import { openFinancialReportPrint } from "./financialReportPrint";
 import OrderRow from "./OrderRow";
 import { useUIEvent } from "./useUIEvent";
 import { Badge, Btn } from "./UIControls";
@@ -2035,12 +2036,14 @@ export default function App(){
               const r=viewingReport;
               const rate=Number(r.exchange_rate)||RATE;
               const breakdown=typeof r.supplier_breakdown==="string"?JSON.parse(r.supplier_breakdown||"[]"):(r.supplier_breakdown||[]);
+              const previousDebtAED=Math.round((Number(r.remaining_suppliers_aed||0)+Number(r.paid_suppliers_aed||0)-Number(r.expected_cost_aed||0))*100)/100;
               const snapshotDelivery=r.delivery_summary;
               const snapshotProfit=r.profit_summary;
-              return <div>
+              return <div id="financial-report" dir={rtl?"rtl":"ltr"}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
                   <button onClick={()=>setViewingReport(null)} style={{background:"transparent",border:"1px solid "+bc,borderRadius:8,padding:"7px 14px",cursor:"pointer",color:tp,fontSize:13}}>← {rtl?"رجوع":"Back"}</button>
                   <h2 style={{fontSize:18,fontWeight:800,margin:0,flex:1}}>📄 {rtl?"تقرير مالي":"Financial Report"} — {new Date(r.created_at).toLocaleDateString(rtl?"ar-OM":"en-GB")}</h2>
+                  <button onClick={()=>{if(!openFinancialReportPrint(document.getElementById("financial-report"),rtl))showT(rtl?"اسمح بالنوافذ المنبثقة لفتح الطباعة":"Allow pop-ups to open print preview","error");}} style={{background:"#202F4D",color:"#fff",border:0,borderRadius:8,padding:"8px 16px",cursor:"pointer",fontWeight:700}}>🖨️ {rtl?"طباعة التقرير":"Print report"}</button>
                 </div>
                 <div style={{background:"#FFF7ED",border:"1px solid #FCD9A5",borderRadius:8,padding:"8px 14px",marginBottom:16,fontSize:12,color:"#92400E"}}>📸 {rtl?"لقطة تاريخية — القيم ثابتة كما كانت وقت الإنشاء. سعر الصرف المستخدم:":"Historical snapshot — values frozen. Rate used:"} <b>1 OMR = {rate} AED</b></div>
                 <div className="ui-panel ui-table-panel" style={{background:bgC,border:"1px solid "+bc,borderRadius:12,overflow:"hidden",marginBottom:16}}>
@@ -2053,6 +2056,7 @@ export default function App(){
                         [rtl?"الرصيد المتاح":"Available Balance",r.available_balance_omr,r.available_balance_omr*rate],
                         [rtl?"مستحقات العملaء":"Customer Outstanding",r.customer_outstanding_omr,r.customer_outstanding_omr*rate],
                         [rtl?"التكلفة المتوقعة للموردين":"Expected Supplier Cost",r.expected_cost_aed/rate,r.expected_cost_aed],
+                        [rtl?"صافي الديون السابقة للموردين":"Previous supplier debts (net)",previousDebtAED/rate,previousDebtAED],
                         [rtl?"المدفوع للموردين":"Paid to Suppliers",r.paid_suppliers_aed/rate,r.paid_suppliers_aed],
                         [rtl?"المتبقي للموردين":"Remaining to Suppliers",r.remaining_suppliers_aed/rate,r.remaining_suppliers_aed],
                         ...(snapshotDelivery?[
@@ -2076,6 +2080,7 @@ export default function App(){
                     </tbody>
                   </table>
                 </div>
+                <p style={{fontSize:12,color:tm,lineHeight:1.8}}>{rtl?"المتبقي للموردين = التكلفة المتوقعة + صافي الديون السابقة − المدفوع للموردين. صافي المركز المتوقع = الرصيد المتاح + مستحقات العملاء − المتبقي للموردين − المتبقي للتوصيل (إن وُجد في التقرير). صافي الربح المتوقع يختلف عن الرصيد النقدي المتبقي.":"Supplier remaining = expected cost + previous debts (net) − paid to suppliers. Expected net position = available balance + customer outstanding − supplier remaining − remaining delivery (when included in the report). Expected net profit differs from remaining cash."}</p>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:16}}>
                   {[[rtl?"إجمالي الطلبات":"Total Orders",r.total_orders],[rtl?"إجمالي الجاكيتات":"Total Jackets",r.total_jackets]].map(([k,v])=>(
                     <div key={k} style={{background:bgC,border:"1px solid "+bc,borderRadius:12,padding:16}}>
