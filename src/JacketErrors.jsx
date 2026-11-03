@@ -1,3 +1,4 @@
+import FactoryReportEditor from './FactoryReportEditor';
 import { handleEnterSubmit } from "./keyboardSubmit";
 import { useState, useRef, useEffect } from 'react';
 import { TABS, TYPES, STAGES, array, reportRows, filterRows, photos, persistReport, persistLegacyFollowUp, insertReport, reportArrays, workflow } from './jacketWorkflow';
@@ -102,6 +103,7 @@ export default function JacketErrors({
     [from, setFrom] = useState(''),
     [to, setTo] = useState(''),
     [sort, setSort] = useState('oldest');
+  const [factoryRow, setFactoryRow] = useState(null);
   const [detail, setDetail] = useState(null),
     [editor, setEditor] = useState(null),
     [draft, setDraft] = useState({}),
@@ -139,6 +141,25 @@ export default function JacketErrors({
   const fail = e => setError(e.message || text('تعذر الحفظ، حاول مرة أخرى', 'Save failed. Please retry'));
   function printReports(items) {
     if (!openErrorPrint(items, rtl)) notify(text('تعذر فتح الطباعة؛ اسمح بالنوافذ المنبثقة وحاول مجدداً', 'Could not open print preview; allow pop-ups and retry'));
+  }
+  async function saveFactoryReport(draft) {
+    if (lock.current) throw new Error(text('جارٍ الحفظ', 'Saving in progress'));
+    lock.current = true; setBusy(true);
+    try {
+      const at = new Date().toISOString();
+      const entry = { ...draft, type: 'factory_report', at, by: user?.name || 'Admin' };
+      if (factoryRow.synthetic) {
+        const saved = await persistLegacyFollowUp(client, factoryRow.order, entry);
+        onOrderSaved(saved);
+        setFactoryRow(prev => ({ ...prev, order: saved }));
+      } else {
+        const stored = reportArrays(factoryRow);
+        const saved = await persistReport(client, factoryRow, { notes: JSON.stringify([...stored.notes.filter(n => n.type !== 'factory_report'), entry]), updated_at: at });
+        replace(saved);
+        setFactoryRow(prev => ({ ...prev, ...saved }));
+      }
+      notify(text('تم حفظ تقرير المصنع', 'Factory report saved'));
+    } finally { lock.current = false; setBusy(false); }
   }
   async function attach(files, setter) {
     setImageBusy(true);
@@ -373,7 +394,7 @@ export default function JacketErrors({
         {last ? <div className="je-note"><b>{text('آخر ملاحظة: ', 'Latest note: ')}</b>{last.text.length > 220 ? <details><summary>{last.text.slice(0, 220)}… {text('عرض المزيد', 'Show more')}</summary><p>{last.text}</p></details> : <span>{last.text}</span>}<small>{last.by || '—'} · {date(last.at)}</small></div> : <p className="je-muted">{text('لا توجد ملاحظات بعد', 'No notes yet')}</p>}
         {row.wf.next && <p><b>{text('الخطوة القادمة: ', 'Next step: ')}</b>{row.wf.next}</p>}
         <div className="je-meta"><span>{text('سُجّل: ', 'Registered: ')}{date(row.created_at)}</span>{!closed && row.created_at && Number.isFinite(Date.parse(row.created_at)) && <span>{Math.max(0, Math.floor((now - Date.parse(row.created_at)) / 86400000))} {text('يوم مفتوح', 'days open')}</span>}<span>{text('آخر متابعة: ', 'Last follow-up: ')}{date(row.lastFollowUp||row.updated_at)}</span><span>📷 {photos(row).length}</span></div>
-        <div className="je-actions"><button onClick={() => printReports([row])}>🖨️ {text('طباعة نسخة العميل', 'Print customer copy')}</button>{row.synthetic ? <><button onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => onDismiss(row.order)}>{text('إزالة من قائمة الأخطاء', 'Remove from Errors')}</button><button onClick={() => {
+        <div className="je-actions"><button disabled={row.dataWarning || !!row.merged_into} onClick={() => setFactoryRow(row)}>{text('تقرير المصنع', 'Factory report')}</button><button onClick={() => printReports([row])}>🖨️ {text('طباعة نسخة العميل', 'Print customer copy')}</button>{row.synthetic ? <><button onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => onDismiss(row.order)}>{text('إزالة من قائمة الأخطاء', 'Remove from Errors')}</button><button onClick={() => {
                 setForm(empty);
                 setCreateOrder(row.order_id);
               }}>{text('استكمال البلاغ', 'Complete report')}</button></> : <><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></>}{!row.synthetic&&!row.merged_into&&<button onClick={()=>edit(row,'contact')}>{text('إضافة رقم تواصل','Add contact number')}</button>}{!row.synthetic&&!row.merged_into&&matchingReports(reports,row.order_id,row.error_description,row.affectedJackets).some(r=>Number(r.id)<Number(row.id))&&<button onClick={()=>edit(row,'merge')}>{text('دمج المكرر','Merge duplicate')}</button>}<button className="je-primary" onClick={() => setDetail(row.id)}>{text('التفاصيل', 'Details')}</button></div>
@@ -419,7 +440,8 @@ export default function JacketErrors({
       setEditor(null);
       setError('');
     }} action={() => save()} busy={busy} imageBusy={imageBusy} error={error} text={text} />}
-    {current && !editor && <Dialog title={`${text('تفاصيل البلاغ', 'Report details')} · ${current.order_id}`} body={<div><button onClick={() => printReports([current])}>🖨️ {text('طباعة نسخة العميل', 'Print customer copy')}</button><p>{current.error_description}</p>{!current.merged_into && <div className="je-actions"><button onClick={() => edit(current, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => edit(current, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></div>}{!current.synthetic && user?.role === 'admin' && <button onClick={() => {
+    {factoryRow && <Dialog title={text('تقرير أخطاء للمصنع', 'Factory correction report')} body={<FactoryReportEditor key={factoryRow.id} row={factoryRow} text={text} readImages={readImages} onSave={saveFactoryReport} busy={busy} onImageBusy={setImageBusy} />} close={() => setFactoryRow(null)} busy={busy} imageBusy={imageBusy} text={text} />}
+    {current && !editor && !factoryRow && <Dialog title={`${text('تفاصيل البلاغ', 'Report details')} · ${current.order_id}`} body={<div><button disabled={current.dataWarning || !!current.merged_into} onClick={() => setFactoryRow(current)}>{text('تقرير المصنع', 'Factory report')}</button><button onClick={() => printReports([current])}>🖨️ {text('طباعة نسخة العميل', 'Print customer copy')}</button><p>{current.error_description}</p>{!current.merged_into && <div className="je-actions"><button onClick={() => edit(current, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => edit(current, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></div>}{!current.synthetic && user?.role === 'admin' && <button onClick={() => {
         setDetail(null);
         onEdit(current);
       }}>{text('تعديل بيانات البلاغ', 'Edit report data')}</button>}<button onClick={() => {
