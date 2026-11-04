@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { factoryReport, factoryPrintDocument, factoryIssueHasContent, cropRectangle, photoScale } from '../src/factoryReport.js';
+import { factoryDraft, factoryJacketCount, factoryReport, factoryPrintDocument, factoryIssueHasContent, cropRectangle, photoScale } from '../src/factoryReport.js';
 const photo = { url: 'data:image/jpeg;base64,AAAA' };
 const issue = { received: photo, expected: photo, extra: photo, problem: '<wrong sleeve>', correction: 'Replace sleeve' };
 const row = { order_id: 'ORD-44', order: { customer: 'SECRET CUSTOMER', phone: 'SECRET PHONE', jackets: 8, errorNotes: [] }, jacket_owner: 'SECRET OWNER', notes: [] };
@@ -41,4 +41,30 @@ test('printed image sizes use saved scale and reject unsafe values', () => {
   for (const value of [undefined, -1, 200, 'bad', '50; color:red']) assert.equal(photoScale({ printScale: value }), 100);
   const html = factoryPrintDocument(row, { issues: [{ received: { ...photo, printScale: 50 } }] });
   assert.ok(html.includes('style="width:50%;height:20mm"'));
+});
+
+test('affected count creates separate jacket drafts including legacy note counts', () => {
+  const draft = factoryDraft({ ...row, affectedJackets: 2 });
+  assert.deepEqual(draft.issues.map(i => i.jacketNumber), [1, 2]);
+  assert.equal(factoryJacketCount({ notes: JSON.stringify([{ type: 'affected_jackets', value: 2 }]) }), 2);
+});
+test('printing keeps each jacket and identifier on separate pages', () => {
+  const html = factoryPrintDocument({ ...row, affectedJackets: 2 }, { jacketLabels: { 1: '<Blue>', 2: 'Red XL' }, issues: [
+    { ...issue, jacketNumber: 2, problem: 'RED ERROR' },
+    { ...issue, jacketNumber: 1, problem: 'BLUE ERROR' }
+  ] });
+  const pages = html.match(/<article>[\s\S]*?<\/article>/g);
+  assert.equal(pages.length, 2);
+  assert.ok(pages[0].includes('Jacket 1 · &lt;Blue&gt;'));
+  assert.ok(pages[0].includes('BLUE ERROR'));
+  assert.ok(!pages[0].includes('RED ERROR'));
+  assert.ok(pages[1].includes('Jacket 2 · Red XL'));
+  assert.ok(pages[1].includes('RED ERROR'));
+});
+test('legacy issues and saved jackets beyond a revised count are preserved', () => {
+  const saved = { type: 'factory_report', issues: [{ ...issue, id: 'old' }, { ...issue, id: 'third', jacketNumber: 3 }] };
+  const legacyRow = { ...row, affectedJackets: 2, notes: [saved] };
+  const draft = factoryDraft(legacyRow);
+  assert.deepEqual(draft.issues.map(i => i.jacketNumber), [1, 3]);
+  assert.equal((factoryPrintDocument(legacyRow, draft).match(/<article>/g) || []).length, 3);
 });
