@@ -1,3 +1,4 @@
+import { openPhotoPrint } from './photoStorage.js';
 import { TABS, TYPES, photos } from './jacketWorkflow.js';
 
 const esc = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -48,12 +49,7 @@ Promise.all(Array.from(document.images,image=>new Promise(resolve=>{const done=(
 </script></body></html>`;
 }
 
-export function openErrorPrint(rows, rtl) {
+export function openErrorPrint(rows, rtl, client) {
   if (!rows.length) return false;
-  const preview = window.open('', '_blank');
-  if (!preview) return false;
-  preview.opener = null;
-  preview.document.write(errorPrintDocument(rows, rtl));
-  preview.document.close();
-  return true;
+  return openPhotoPrint(client, rows, resolved => errorPrintDocument(resolved, rtl));
 }

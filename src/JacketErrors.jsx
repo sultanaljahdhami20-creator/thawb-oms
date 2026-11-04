@@ -1,3 +1,5 @@
+import StoredPhoto from './StoredPhoto';
+import { uploadPhoto, transformPhotos } from './photoStorage';
 import FactoryReportEditor from './FactoryReportEditor';
 import { handleEnterSubmit } from "./keyboardSubmit";
 import { useState, useRef, useEffect } from 'react';
@@ -6,9 +8,8 @@ import './jacketErrors.css';
 import { openErrorPrint } from './jacketErrorPrint';
 import {additionalContacts,validContactPhone,normalizePhone,matchingReports,submissionSignature,submissionRequest,mergeReports} from './jacketReportActions';
 
-// Images are resized before being stored with their note, using the existing
-// notes access policy; no public storage bucket or schema change is required.
-async function readImages(files) {
+// Images are resized and verified in private Storage before saving references.
+async function readImages(files, client) {
   if (files.length > 6) throw new Error('الحد الأقصى ٦ صور / Maximum 6 images');
   return Promise.all([...files].map(async file => {
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 12 * 1024 * 1024) throw new Error('اختر JPG / PNG / WebP أصغر من 12MB');
@@ -22,7 +23,7 @@ async function readImages(files) {
     const url = canvas.toDataURL('image/jpeg', 0.72);
     if (url.length > 700000) throw new Error('الصورة كبيرة، اختر صورة أصغر / Image too large');
     return {
-      url,
+      url: await uploadPhoto(client, url),
       caption: file.name
     };
   }));
@@ -140,14 +141,15 @@ export default function JacketErrors({
   const replace = saved => setReports(prev => prev.map(r => r.id === saved.id ? saved : r));
   const fail = e => setError(e.message || text('تعذر الحفظ، حاول مرة أخرى', 'Save failed. Please retry'));
   function printReports(items) {
-    if (!openErrorPrint(items, rtl)) notify(text('تعذر فتح الطباعة؛ اسمح بالنوافذ المنبثقة وحاول مجدداً', 'Could not open print preview; allow pop-ups and retry'));
+    if (!openErrorPrint(items, rtl, client)) notify(text('تعذر فتح الطباعة؛ اسمح بالنوافذ المنبثقة وحاول مجدداً', 'Could not open print preview; allow pop-ups and retry'));
   }
   async function saveFactoryReport(draft) {
     if (lock.current) throw new Error(text('جارٍ الحفظ', 'Saving in progress'));
     lock.current = true; setBusy(true);
     try {
       const at = new Date().toISOString();
-      const entry = { ...draft, type: 'factory_report', at, by: user?.name || 'Admin' };
+      const savedDraft = await transformPhotos(draft, url => uploadPhoto(client, url));
+      const entry = { ...savedDraft, type: 'factory_report', at, by: user?.name || 'Admin' };
       if (factoryRow.synthetic) {
         const saved = await persistLegacyFollowUp(client, factoryRow.order, entry);
         onOrderSaved(saved);
@@ -165,7 +167,7 @@ export default function JacketErrors({
     setImageBusy(true);
     setError('');
     try {
-      const images = await readImages(files);
+      const images = await readImages(files, client);
       setter(prev => {
         if ((prev.photos?.length || 0) + images.length > 6) {
           setError(text('الحد الأقصى ٦ صور', 'Maximum 6 images'));
@@ -354,7 +356,7 @@ export default function JacketErrors({
         }} /></label><label className="je-upload">＋ {text('إرفاق صور', 'Attach images')}<input disabled={busy || imageBusy} type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={e => {
           attach(e.target.files, setter);
           e.target.value = '';
-        }} /></label></div>{imageBusy && <p>{text('جارٍ تجهيز الصور…', 'Preparing images…')}</p>}<div className="je-thumbs">{(value.photos || []).map((p, i) => <div key={i}><img src={p.url} alt={p.caption} /><input aria-label={text('تعليق الصورة', 'Image caption')} value={p.caption} onChange={e => setter(prev => ({
+        }} /></label></div>{imageBusy && <p>{text('جارٍ تجهيز الصور…', 'Preparing images…')}</p>}<div className="je-thumbs">{(value.photos || []).map((p, i) => <div key={i}><StoredPhoto src={p.url} alt={p.caption} /><input aria-label={text('تعليق الصورة', 'Image caption')} value={p.caption} onChange={e => setter(prev => ({
             ...prev,
             photos: prev.photos.map((x, j) => j === i ? {
               ...x,
@@ -440,14 +442,14 @@ export default function JacketErrors({
       setEditor(null);
       setError('');
     }} action={() => save()} busy={busy} imageBusy={imageBusy} error={error} text={text} />}
-    {factoryRow && <Dialog title={text('تقرير أخطاء للمصنع', 'Factory correction report')} body={<FactoryReportEditor key={factoryRow.id} row={factoryRow} text={text} readImages={readImages} onSave={saveFactoryReport} busy={busy} onImageBusy={setImageBusy} />} close={() => setFactoryRow(null)} busy={busy} imageBusy={imageBusy} text={text} />}
+    {factoryRow && <Dialog title={text('تقرير أخطاء للمصنع', 'Factory correction report')} body={<FactoryReportEditor key={factoryRow.id} row={factoryRow} text={text} client={client} readImages={files => readImages(files, client)} onSave={saveFactoryReport} busy={busy} onImageBusy={setImageBusy} />} close={() => setFactoryRow(null)} busy={busy} imageBusy={imageBusy} text={text} />}
     {current && !editor && !factoryRow && <Dialog title={`${text('تفاصيل البلاغ', 'Report details')} · ${current.order_id}`} body={<div><button disabled={current.dataWarning || !!current.merged_into} onClick={() => setFactoryRow(current)}>{text('تقرير المصنع', 'Factory report')}</button><button onClick={() => printReports([current])}>🖨️ {text('طباعة نسخة العميل', 'Print customer copy')}</button><p>{current.error_description}</p>{!current.merged_into && <div className="je-actions"><button onClick={() => edit(current, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => edit(current, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></div>}{!current.synthetic && user?.role === 'admin' && <button onClick={() => {
         setDetail(null);
         onEdit(current);
       }}>{text('تعديل بيانات البلاغ', 'Edit report data')}</button>}<button onClick={() => {
         setDetail(null);
         onDismiss(current.order);
-      }}>{text('إزالة الطلب من قائمة الأخطاء القديمة', 'Remove order from legacy errors')}</button><p>{text('صاحب الجاكيت / المقاس / النوع: ', 'Owner / size / type: ')}{[current.jacket_owner, current.jacket_size, current.jacket_type].filter(Boolean).join(' · ') || '—'}</p><button onClick={() => onOpenOrder(current.order)}>{text('فتح الطلب الأصلي', 'Open original order')}</button><h3>{text('الصور', 'Images')}</h3><div className="je-gallery">{photos(current).map((p, i) => <button key={i} onClick={() => setZoom(p)}><img src={p.url} alt={p.caption || text('صورة البلاغ', 'Report image')} /><span>{p.caption}</span></button>)}</div>{!photos(current).length && <p>{text('لا توجد صور', 'No images')}</p>}<h3>{text('ملاحظات الطلب السابقة', 'Previous order notes')}</h3>{array(current.order.errorNotes).map((n, i) => <div className="je-event" key={i}><p>{n.text}</p><small>{n.by} · {date(n.at)}</small>{user?.role === 'admin' && <button onClick={() => {
+      }}>{text('إزالة الطلب من قائمة الأخطاء القديمة', 'Remove order from legacy errors')}</button><p>{text('صاحب الجاكيت / المقاس / النوع: ', 'Owner / size / type: ')}{[current.jacket_owner, current.jacket_size, current.jacket_type].filter(Boolean).join(' · ') || '—'}</p><button onClick={() => onOpenOrder(current.order)}>{text('فتح الطلب الأصلي', 'Open original order')}</button><h3>{text('الصور', 'Images')}</h3><div className="je-gallery">{photos(current).map((p, i) => <button key={i} onClick={() => setZoom(p)}><StoredPhoto src={p.url} alt={p.caption || text('صورة البلاغ', 'Report image')} /><span>{p.caption}</span></button>)}</div>{!photos(current).length && <p>{text('لا توجد صور', 'No images')}</p>}<h3>{text('ملاحظات الطلب السابقة', 'Previous order notes')}</h3>{array(current.order.errorNotes).map((n, i) => <div className="je-event" key={i}><p>{n.text}</p><small>{n.by} · {date(n.at)}</small>{user?.role === 'admin' && <button onClick={() => {
           setDetail(null);
           onEditNote(current.order, i);
         }}>{text('تعديل', 'Edit')}</button>}</div>)}{array(current.relatedReports).map(related=><section key={related.id}><h3>{text('ملاحظات البلاغ المرتبط #','Linked report notes #')}{related.id}</h3>{array(related.notes).filter(n=>n.text).map((n,i)=><div className="je-event" key={i}><p>{n.text}</p><small>{n.by} · {date(n.at)}</small></div>)}</section>)}<h3>{text('سجل المتابعة', 'Follow-up history')}</h3>{[...array(current.statusHistory || current.status_history).filter(h => !['state', 'note'].includes(h.type)).map(h => ({
@@ -476,6 +478,6 @@ export default function JacketErrors({
     {zoom && <div className="je-zoom" onKeyDown={event => {
       if (event.key === 'Escape') setZoom(null);
       if (event.key === 'Tab') event.preventDefault();
-    }} role="dialog" aria-modal="true" aria-label={text('عرض الصورة', 'Image preview')}><button autoFocus onClick={() => setZoom(null)}>{text('إغلاق', 'Close')} ×</button><img src={zoom.url} alt={zoom.caption || ''} /><p>{zoom.caption}</p></div>}
+    }} role="dialog" aria-modal="true" aria-label={text('عرض الصورة', 'Image preview')}><button autoFocus onClick={() => setZoom(null)}>{text('إغلاق', 'Close')} ×</button><StoredPhoto src={zoom.url} alt={zoom.caption || ''} /><p>{zoom.caption}</p></div>}
   </div>;
 }
