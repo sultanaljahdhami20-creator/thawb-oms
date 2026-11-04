@@ -139,3 +139,14 @@ test('legacy follow-up persists cancellation without inserting a report or losin
   await assert.rejects(persistLegacyFollowUp(failed,order,entry));
   assert.deepEqual(order.error_notes,original);
 });
+
+test('location filter works independently of report state and combines with it', () => {
+  const rows = [
+    { id: 1, order: {}, wf: { state: 'paused', stage: 'warehouse' } },
+    { id: 2, order: {}, wf: { state: 'active', stage: 'courier' } },
+    { id: 3, order: {}, wf: { state: 'active', stage: 'warehouse' } }
+  ];
+  assert.deepEqual(filterRows(rows, { tab: 'all', stage: 'warehouse' }).map(r => r.id), [1, 3]);
+  assert.deepEqual(filterRows(rows, { tab: 'active', stage: 'warehouse' }).map(r => r.id), [3]);
+  assert.deepEqual(filterRows(rows, { tab: 'all', stage: 'factory' }), []);
+});

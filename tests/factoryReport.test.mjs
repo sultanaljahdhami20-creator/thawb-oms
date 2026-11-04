@@ -10,10 +10,10 @@ test('factory print whitelists order metadata and escapes explanations', () => {
   for (const value of ['SECRET CUSTOMER', 'SECRET PHONE', 'SECRET OWNER', '<wrong sleeve>']) assert.ok(!html.includes(value), value);
   assert.equal((html.match(/<figure>/g) || []).length, 3);
 });
-test('groups three issues per page and only includes an attached form', () => {
+test('groups one issue per page and only includes an attached form', () => {
   const report = { issues: Array(4).fill(issue) };
-  assert.equal((factoryPrintDocument(row, report).match(/<article>/g) || []).length, 2);
-  assert.equal((factoryPrintDocument(row, { ...report, formPhoto: photo }).match(/<article>/g) || []).length, 3);
+  assert.equal((factoryPrintDocument(row, report).match(/<article>/g) || []).length, 4);
+  assert.equal((factoryPrintDocument(row, { ...report, formPhoto: photo }).match(/<article>/g) || []).length, 5);
   assert.ok(!factoryPrintDocument(row, report).includes('Form reference'));
 });
 test('unsafe image sources are excluded and latest saved report wins', () => {
@@ -40,7 +40,7 @@ test('printed image sizes use saved scale and reject unsafe values', () => {
   assert.equal(photoScale({ printScale: '50' }), 50);
   for (const value of [undefined, -1, 200, 'bad', '50; color:red']) assert.equal(photoScale({ printScale: value }), 100);
   const html = factoryPrintDocument(row, { issues: [{ received: { ...photo, printScale: 50 } }] });
-  assert.ok(html.includes('style="width:50%;height:20mm"'));
+  assert.ok(html.includes('style="width:50%;height:40mm"'));
 });
 
 test('affected count creates separate jacket drafts including legacy note counts', () => {
@@ -67,4 +67,11 @@ test('legacy issues and saved jackets beyond a revised count are preserved', () 
   const draft = factoryDraft(legacyRow);
   assert.deepEqual(draft.issues.map(i => i.jacketNumber), [1, 3]);
   assert.equal((factoryPrintDocument(legacyRow, draft).match(/<article>/g) || []).length, 3);
+});
+
+test('direct printing waits for images and only auto prints when they load', () => {
+  const html = factoryPrintDocument(row, { issues: [issue] }, { autoPrint: true });
+  assert.ok(html.includes("if(document.getElementById('warning').hidden)window.print();"));
+  assert.ok(!factoryPrintDocument(row, { issues: [issue] }).includes("if(document.getElementById('warning').hidden)window.print();"));
+  assert.ok(html.includes('height:80mm'));
 });

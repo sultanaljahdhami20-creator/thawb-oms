@@ -1,5 +1,6 @@
 import StoredPhoto from './StoredPhoto';
 import { uploadPhoto, transformPhotos } from './photoStorage';
+import { factoryReport, factoryDraft, openFactoryPrint } from './factoryReport';
 import FactoryReportEditor from './FactoryReportEditor';
 import { handleEnterSubmit } from "./keyboardSubmit";
 import { useState, useRef, useEffect } from 'react';
@@ -99,7 +100,8 @@ export default function JacketErrors({
   const pendingSubmission=useRef(null);
   const [showMerged,setShowMerged]=useState(false);
   const [now] = useState(() => Date.now());
-  const [tab, setTab] = useState('active'),
+  const [tab, setTab] = useState('all'),
+    [stage, setStage] = useState(''),
     [search, setSearch] = useState(''),
     [from, setFrom] = useState(''),
     [to, setTo] = useState(''),
@@ -123,6 +125,7 @@ export default function JacketErrors({
   const rows = reportRows(orders, reports,{includeMerged:showMerged}),
     shown = filterRows(rows, {
       tab,
+      stage,
       search,
       from,
       to,
@@ -369,15 +372,17 @@ export default function JacketErrors({
   }
   if (loadError) return <div data-workflow-version="2026-10-31" className={`je ${dark ? 'je-dark' : ''}`} dir={rtl ? 'rtl' : 'ltr'}><p role="alert" className="je-error">{loadError}</p><button onClick={() => window.location.reload()}>{text('إعادة تحميل البيانات', 'Reload data')}</button>{newOrderId && <button onClick={onCloseNew}>{text('إغلاق', 'Close')}</button>}</div>;
   return <div data-workflow-version="2026-10-31" className={`je ${dark ? 'je-dark' : ''}`} dir={rtl ? 'rtl' : 'ltr'}>
-    {!modalOnly && <><header className="je-heading"><div><h1>{text('أخطاء الجاكيتات', 'Jacket errors')}</h1><p>{text('كل بلاغ، وضعه الحالي، والخطوة القادمة في مكان واحد', 'Every report, its current progress and next step in one place')}</p></div><select aria-label={text('تسجيل بلاغ لطلب', 'Register a report for an order')} value="" onChange={e => {
+    {!modalOnly && <><header className="je-heading"><div><h1>{text('أخطاء الجاكيتات', 'Jacket errors')}</h1><p>{text('اعرف وين الطلب، حدّث مكانه، واطبع تقرير المصنع مباشرة', 'Track each order’s location, update its progress and print factory reports')}</p></div><select aria-label={text('تسجيل بلاغ لطلب', 'Register a report for an order')} value="" onChange={e => {
           setForm(empty);
           setCreateOrder(e.target.value);
           setError('');
         }}><option value="">＋ {text('تسجيل بلاغ', 'Register report')}</option>{orders.map(o => <option key={o.id} value={o.id}>{o.id} · {o.customer}</option>)}</select></header>
     <div className="je-actions"><button disabled={!shown.length} onClick={() => printReports(shown)}>🖨️ {text('طباعة نسخ العملاء', 'Print customer copies')} ({shown.length})</button></div>
-    <nav className="je-tabs" aria-label={text('حالات البلاغات', 'Report states')}>{TABS.map(([key, ar, en]) => <button key={key} aria-pressed={tab === key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{rtl ? ar : en}<b>{key === 'all' ? rows.length : rows.filter(r => r.wf.state === key).length}</b></button>)}</nav>
+    <div className="je-location-filter"><label>{text('وين الطلب حالياً؟', 'Where is the order now?')}<select value={stage} onChange={e => setStage(e.target.value)}><option value="">{text('كل الأماكن والمراحل', 'All locations and stages')} ({rows.length})</option>{STAGES.map(([key, ar, en]) => <option key={key} value={key}>{rtl ? ar : en} ({rows.filter(r => r.wf.stage === key).length})</option>)}</select></label><label>{text('حالة البلاغ — اختياري', 'Report state — optional')}<select value={tab} onChange={e => setTab(e.target.value)}>{TABS.map(([key, ar, en]) => <option key={key} value={key}>{rtl ? ar : en}</option>)}</select></label></div>
     <div className="je-filters"><input aria-label={text('بحث', 'Search')} placeholder={text('بحث بالطلب، العميل أو وصف المشكلة…', 'Search order, customer or issue…')} value={search} onChange={e => setSearch(e.target.value)} /><label>{text('من', 'From')}<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label>{text('إلى', 'To')}<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label><select aria-label={text('ترتيب', 'Sort')} value={sort} onChange={e => setSort(e.target.value)}><option value="oldest">{text('الأقدم أولاً', 'Oldest first')}</option><option value="newest">{text('الأحدث أولاً', 'Newest first')}</option><option value="updated">{text('آخر متابعة', 'Last follow-up')}</option></select><button onClick={() => {
           setSearch('');
+          setStage('');
+          setTab('all');
           setFrom('');
           setTo('');
           setSort('oldest');
@@ -387,19 +392,19 @@ export default function JacketErrors({
           const notes = [...array(row.order.errorNotes), ...array(row.notes),...array(row.relatedReports).flatMap(r=>array(r.notes))].filter(n => n.text && !['affected_jackets','workflow','contact','merge','duplicate_link','original_date_unknown'].includes(n.type)).sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0)),
             last = notes.at(-1),
             closed = ['resolved', 'rejected', 'cancelled'].includes(row.wf.state) || row.wf.state === 'refund' && row.wf.refundDone;
-          return <article key={row.id} className={`je-row state-${row.wf.state}`}><div className="je-rowhead"><div><strong>{row.order_id} · {row.order.customer || row.customer_name || '—'}</strong><p className="je-muted" style={{fontSize:13,margin:"6px 0 0"}}>{text('رقم العميل: ', 'Customer phone: ')}<bdi dir="ltr" style={{fontWeight:600}}>{row.order.phone || row.customer_phone || text('غير مسجل', 'Not recorded')}</bdi></p>{additionalContacts(row).map((contact,i)=><p key={i} style={{fontSize:13,margin:'6px 0 0'}}>{text('رقم إضافي','Additional phone')}{contact.label?' · '+contact.label:''}: <bdi dir="ltr">{contact.phone}</bdi></p>)}</div><span className="je-badge">{label(TABS, row.wf.state)}</span></div>
+          return <article key={row.id} className={`je-row state-${row.wf.state}`}><div className="je-rowhead"><div><strong>{row.order_id} · {row.order.customer || row.customer_name || '—'}</strong><p className="je-muted" style={{fontSize:13,margin:"6px 0 0"}}>{text('رقم العميل: ', 'Customer phone: ')}<bdi dir="ltr" style={{fontWeight:600}}>{row.order.phone || row.customer_phone || text('غير مسجل', 'Not recorded')}</bdi></p>{additionalContacts(row).map((contact,i)=><p key={i} style={{fontSize:13,margin:'6px 0 0'}}>{text('رقم إضافي','Additional phone')}{contact.label?' · '+contact.label:''}: <bdi dir="ltr">{contact.phone}</bdi></p>)}</div><span className="je-badge">{label(STAGES, row.wf.stage)}</span></div>
         {row.merged_into&&<p className="je-warning">{text('نسخة مدمجة مع البلاغ #','Merged into report #')}{row.merged_into}</p>}{row.dataWarning && <p className="je-error">{text('بيانات البلاغ تحتاج مراجعة؛ التعديل متوقف لحمايتها', 'Report data needs review; editing is disabled to protect it')}</p>}<h3>{label(TYPES, row.wf.kind)} · {text('المتضررة', 'Affected')}: <bdi dir="ltr">{row.synthetic ? '—' : row.affectedJackets ?? row.affected_jackets ?? 1} / {row.order.jackets ?? '—'}</bdi></h3>
         {row.error_description && <p className="je-description">{row.error_description}</p>}
-        <p className="je-stage">{label(STAGES, row.wf.stage)}{row.wf.state === 'refund' && ` · ${row.wf.refundDone ? text('تم الاسترجاع', 'Refund completed') : text('بانتظار الاسترجاع', 'Refund pending')}`}</p>
+        <p className="je-muted">{label(TABS, row.wf.state)}{row.wf.state === 'refund' && ` · ${row.wf.refundDone ? text('تم الاسترجاع', 'Refund completed') : text('بانتظار الاسترجاع', 'Refund pending')}`}</p>
         {row.wf.conflict && <p className="je-warning">⚠ {text('تحتاج تأكيد الحالة — بيانات الطلب والبلاغ متعارضة', 'Confirm state — order and report disagree')}</p>}
         {row.wf.reason && <p><b>{text('السبب: ', 'Reason: ')}</b>{row.wf.reason}</p>}
         {last ? <div className="je-note"><b>{text('آخر ملاحظة: ', 'Latest note: ')}</b>{last.text.length > 220 ? <details><summary>{last.text.slice(0, 220)}… {text('عرض المزيد', 'Show more')}</summary><p>{last.text}</p></details> : <span>{last.text}</span>}<small>{last.by || '—'} · {date(last.at)}</small></div> : <p className="je-muted">{text('لا توجد ملاحظات بعد', 'No notes yet')}</p>}
         {row.wf.next && <p><b>{text('الخطوة القادمة: ', 'Next step: ')}</b>{row.wf.next}</p>}
         <div className="je-meta"><span>{text('سُجّل: ', 'Registered: ')}{date(row.created_at)}</span>{!closed && row.created_at && Number.isFinite(Date.parse(row.created_at)) && <span>{Math.max(0, Math.floor((now - Date.parse(row.created_at)) / 86400000))} {text('يوم مفتوح', 'days open')}</span>}<span>{text('آخر متابعة: ', 'Last follow-up: ')}{date(row.lastFollowUp||row.updated_at)}</span><span>📷 {photos(row).length}</span></div>
-        <div className="je-actions"><button disabled={row.dataWarning || !!row.merged_into} onClick={() => setFactoryRow(row)}>{text('تقرير المصنع', 'Factory report')}</button><button onClick={() => printReports([row])}>🖨️ {text('طباعة نسخة العميل', 'Print customer copy')}</button>{row.synthetic ? <><button onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button onClick={() => onDismiss(row.order)}>{text('إزالة من قائمة الأخطاء', 'Remove from Errors')}</button><button onClick={() => {
+        <div className="je-actions je-row-actions"><button className="je-primary" disabled={row.dataWarning || !!row.merged_into} onClick={() => edit(row, 'state')}>{text('تحديث مكان الطلب', 'Update order location')}</button>{factoryReport(row) && <button onClick={() => { if (!openFactoryPrint(row, factoryDraft(row), client, { autoPrint: true })) window.alert(text('اسمح بالنوافذ المنبثقة ثم حاول مجدداً', 'Allow pop-ups and retry')); }}>🖨️ {text('طباعة تقرير المصنع', 'Print factory report')}</button>}<button onClick={() => setDetail(row.id)}>{text('التفاصيل', 'Details')}</button><details className="je-more"><summary>{text('المزيد', 'More')}</summary><div className="je-actions"><button disabled={row.dataWarning || !!row.merged_into} onClick={() => setFactoryRow(row)}>{text('تقرير المصنع', 'Factory report')}</button><button onClick={() => printReports([row])}>🖨️ {text('طباعة نسخة العميل', 'Print customer copy')}</button>{row.synthetic ? <><button onClick={() => onDismiss(row.order)}>{text('إزالة من قائمة الأخطاء', 'Remove from Errors')}</button><button onClick={() => {
                 setForm(empty);
                 setCreateOrder(row.order_id);
-              }}>{text('استكمال البلاغ', 'Complete report')}</button></> : <><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'state')}>{text('تغيير الحالة', 'Change state')}</button><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></>}{!row.synthetic&&!row.merged_into&&<button onClick={()=>edit(row,'contact')}>{text('إضافة رقم تواصل','Add contact number')}</button>}{!row.synthetic&&!row.merged_into&&matchingReports(reports,row.order_id,row.error_description,row.affectedJackets).some(r=>Number(r.id)<Number(row.id))&&<button onClick={()=>edit(row,'merge')}>{text('دمج المكرر','Merge duplicate')}</button>}<button className="je-primary" onClick={() => setDetail(row.id)}>{text('التفاصيل', 'Details')}</button></div>
+              }}>{text('استكمال البلاغ', 'Complete report')}</button></> : <><button disabled={row.dataWarning||!!row.merged_into} onClick={() => edit(row, 'note')}>{text('إضافة ملاحظة / صور', 'Add note / images')}</button></>}{!row.synthetic&&!row.merged_into&&<button onClick={()=>edit(row,'contact')}>{text('إضافة رقم تواصل','Add contact number')}</button>}{!row.synthetic&&!row.merged_into&&matchingReports(reports,row.order_id,row.error_description,row.affectedJackets).some(r=>Number(r.id)<Number(row.id))&&<button onClick={()=>edit(row,'merge')}>{text('دمج المكرر','Merge duplicate')}</button>}</div></details></div>
       </article>;
         })}{!shown.length && <div className="je-empty">{text('لا توجد بلاغات في هذه القائمة', 'No reports in this list')}</div>}</div>
     </>}
@@ -422,7 +427,7 @@ export default function JacketErrors({
           })} /></label>{imageFields(draft, setDraft)}</> : <><label>{text('الحالة', 'State')}<select value={draft.state} onChange={e => setDraft({
             ...draft,
             state: e.target.value
-          })}>{TABS.filter(t => t[0] !== 'all').map(([key, ar, en]) => <option key={key} value={key}>{rtl ? ar : en}</option>)}</select></label><label>{text('مرحلة المتابعة', 'Follow-up stage')}<select value={draft.stage} onChange={e => setDraft({
+          })}>{TABS.filter(t => t[0] !== 'all').map(([key, ar, en]) => <option key={key} value={key}>{rtl ? ar : en}</option>)}</select></label><label>{text('مكان الطلب / المرحلة الحالية', 'Order location / current stage')}<select value={draft.stage} onChange={e => setDraft({
             ...draft,
             stage: e.target.value,
             state: 'active'

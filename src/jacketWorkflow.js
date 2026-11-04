@@ -5,7 +5,7 @@
 // registering a genuinely new report (created_at itself is NOT NULL in legacy DBs).
 export const TABS = [['new', 'جديدة', 'New'], ['active', 'قيد المتابعة', 'Following up'], ['paused', 'معلّقة', 'On hold'], ['resolved', 'تم الحل', 'Resolved'], ['rejected', 'مرفوضة', 'Rejected'], ['cancelled', 'ملغاة', 'Cancelled'], ['refund', 'استرجاع المبلغ', 'Refund'], ['all', 'الكل', 'All']];
 export const TYPES = [['size', 'مقاس', 'Size'], ['embroidery', 'تطريز / اسم', 'Embroidery / name'], ['color', 'لون', 'Color'], ['wrong', 'جاكيت مختلف', 'Wrong jacket'], ['defect', 'عيب تصنيع', 'Manufacturing defect'], ['other', 'أخرى', 'Other']];
-export const STAGES = [['review', 'مراجعة البلاغ', 'Reviewing report'], ['waiting', 'بانتظار استلامه من العميل', 'Waiting for customer'], ['received', 'تم استلامه من العميل', 'Received from customer'], ['factory', 'تم إرساله للمصنع', 'Sent to factory'], ['modifying', 'عند المصنع — قيد التعديل', 'At factory — being modified'], ['modified', 'انتهى التعديل', 'Modification finished'], ['returned', 'تم استلامه من المصنع', 'Received from factory'], ['ready', 'جاهز للتسليم', 'Ready for delivery'], ['sent', 'أُرسل للعميل', 'Sent to customer'], ['replacement', 'يحتاج استبدال', 'Needs replacement']];
+export const STAGES = [['review', 'مراجعة البلاغ', 'Reviewing report'], ['waiting', 'بانتظار استلامه من العميل', 'Waiting for customer'], ['received', 'تم استلامه من العميل', 'Received from customer'], ['warehouse', 'في المخزن', 'In warehouse'], ['courier', 'عند شركة التوصيل', 'With delivery company'], ['factory', 'تم إرساله للمصنع', 'Sent to factory'], ['modifying', 'عند المصنع — قيد التعديل', 'At factory — being modified'], ['modified', 'انتهى التعديل', 'Modification finished'], ['returned', 'تم استلامه من المصنع', 'Received from factory'], ['ready', 'جاهز للتسليم', 'Ready for delivery'], ['sent', 'أُرسل للعميل', 'Sent to customer'], ['replacement', 'يحتاج استبدال', 'Needs replacement']];
 export function array(value) {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value;
@@ -140,12 +140,13 @@ export function reportRows(orders, reports, {includeMerged=false}={}) {
 export function filterRows(rows, {
   tab = 'active',
   search = '',
+  stage = '',
   from = '',
   to = '',
   sort = 'oldest'
 }) {
   const time = v => Number.isFinite(Date.parse(v)) ? Date.parse(v) : null;
-  return rows.filter(r => (tab === 'all' || r.wf.state === tab) && (!search || [r.order_id, r.order.customer, r.order.phone, r.error_description, r.wf.kind, ...[...array(r.notes),...array(r.relatedReports).flatMap(related=>array(related.notes))].map(n => [n.text,n.phone,n.label].filter(Boolean).join(' '))].join(' ').toLowerCase().includes(search.toLowerCase())) && (!from || time(r.created_at) !== null && time(r.created_at) >= time(from + 'T00:00:00')) && (!to || time(r.created_at) !== null && time(r.created_at) <= time(to + 'T23:59:59.999'))).sort((a, b) => {
+  return rows.filter(r => (tab === 'all' || r.wf.state === tab) && (!stage || r.wf.stage === stage) && (!search || [r.order_id, r.order.customer, r.order.phone, r.error_description, r.wf.kind, ...[...array(r.notes),...array(r.relatedReports).flatMap(related=>array(related.notes))].map(n => [n.text,n.phone,n.label].filter(Boolean).join(' '))].join(' ').toLowerCase().includes(search.toLowerCase())) && (!from || time(r.created_at) !== null && time(r.created_at) >= time(from + 'T00:00:00')) && (!to || time(r.created_at) !== null && time(r.created_at) <= time(to + 'T23:59:59.999'))).sort((a, b) => {
     const av = time(sort === 'updated' ? a.lastFollowUp||a.updated_at : a.created_at),
       bv = time(sort === 'updated' ? b.lastFollowUp||b.updated_at : b.created_at);
     if (av === null) return bv === null ? String(a.id).localeCompare(String(b.id)) : 1;
