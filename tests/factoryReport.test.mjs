@@ -10,10 +10,12 @@ test('factory print whitelists order metadata and escapes explanations', () => {
   for (const value of ['SECRET CUSTOMER', 'SECRET PHONE', 'SECRET OWNER', '<wrong sleeve>']) assert.ok(!html.includes(value), value);
   assert.equal((html.match(/<figure>/g) || []).length, 3);
 });
-test('groups one issue per page and only includes an attached form', () => {
+test('groups issues by jacket and gives the attached form a separate article', () => {
   const report = { issues: Array(4).fill(issue) };
-  assert.equal((factoryPrintDocument(row, report).match(/<article>/g) || []).length, 4);
-  assert.equal((factoryPrintDocument(row, { ...report, formPhoto: photo }).match(/<article>/g) || []).length, 5);
+  assert.equal((factoryPrintDocument(row, report).match(/<article>/g) || []).length, 1);
+  assert.equal((factoryPrintDocument(row, { ...report, formPhoto: photo }).match(/<article>/g) || []).length, 2);
+  assert.deepEqual(factoryPrintDocument(row, report).match(/<h2>Issue \d<\/h2>/g),
+    [1, 2, 3, 4].map(number => `<h2>Issue ${number}</h2>`));
   assert.ok(!factoryPrintDocument(row, report).includes('Form reference'));
 });
 test('unsafe image sources are excluded and latest saved report wins', () => {
