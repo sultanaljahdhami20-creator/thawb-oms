@@ -1,3 +1,5 @@
+import { filterOrders, resultPage, loadQuery } from "./orderFilters";
+import ResultPagination from "./ResultPagination";
 import { openFinancialReportPrint } from "./financialReportPrint";
 import OrderRow from "./OrderRow";
 import { useUIEvent } from "./useUIEvent";
@@ -350,6 +352,10 @@ export default function App(){
   const [cols,setCols]=useState({orderNum:true,customer:true,phone:true,date:true,jackets:true,total:true,paid:true,balance:true,status:true,supplier:true,deliveryArea:true,deliveryPaid:true,deliveryCost:true,deliveryRemaining:true});
 
   const [loading,setLoading]=useState(true);
+  const [loadError,setLoadError]=useState("");
+  const [loadAttempt,setLoadAttempt]=useState(0);
+  const [ordersPage,setOrdersPage]=useState(1);
+  const [reportsPage,setReportsPage]=useState(1);
   const [mobileNav,setMobileNav]=useState(false);
 
   const parseStoredArray=(value)=>{
@@ -361,23 +367,39 @@ export default function App(){
   // ── Load data from Supabase on mount
   useEffect(()=>{
     const loadData=async()=>{
+      setLoading(true);setLoadError("");setJacketLoadError("");
       let loadedUsers=null;
       try{
-        const {data:ords,error:ordersLoadError}=await supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false});
-        const {data:sups}=await supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false});
-        const {data:usrs}=await supabase.from("users").select("*").order("created_at",{ascending:true});
-        const {data:sett}=await supabase.from("settings").select("*").eq("id","main").single();
-        const {data:logs}=await supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(500);
-        const {data:exps}=await supabase.from("expenses").select("*").order("date",{ascending:false});
-        const {data:jerrs,error:reportsLoadError}=await supabase.from("jacket_errors").select("*").order("created_at",{ascending:false});
-        const {data:supPays}=await supabase.from("supplier_account_payments").select("*").order("date",{ascending:false});
-        const {data:finSettings}=await supabase.from("financial_settings").select("*").eq("id","main").single();
-        const {data:reports}=await supabase.from("financial_reports").select("*").order("created_at",{ascending:false});
-        const {data:refundRows}=await supabase.from("compensation_requests").select("*").order("requested_at",{ascending:false});
+        const [{data:ords,error:ordersLoadError},
+          {data:sups},
+          {data:usrs},
+          {data:sett},
+          {data:logs},
+          {data:exps},
+          {data:jerrs,error:reportsLoadError},
+          {data:supPays},
+          {data:finSettings},
+          {data:reports,error:financialReportsLoadError},
+          {data:refundRows}]=await Promise.all([
+          loadQuery(supabase.from("orders").select("*, payments(*)").order("created_at",{ascending:false})),
+          loadQuery(supabase.from("suppliers").select("*, supplier_payments(*)").order("created_at",{ascending:false})),
+          loadQuery(supabase.from("users").select("*").order("created_at",{ascending:true})),
+          loadQuery(supabase.from("settings").select("*").eq("id","main").single()),
+          loadQuery(supabase.from("activity_log").select("*").order("created_at",{ascending:false}).limit(500)),
+          loadQuery(supabase.from("expenses").select("*").order("date",{ascending:false})),
+          loadQuery(supabase.from("jacket_errors").select("*").order("created_at",{ascending:false})),
+          loadQuery(supabase.from("supplier_account_payments").select("*").order("date",{ascending:false})),
+          loadQuery(supabase.from("financial_settings").select("*").eq("id","main").single()),
+          loadQuery(supabase.from("financial_reports").select("*").order("created_at",{ascending:false})),
+          loadQuery(supabase.from("compensation_requests").select("*").order("requested_at",{ascending:false}))
+        ]);
+        if(ordersLoadError || financialReportsLoadError || !ords || !usrs) throw ordersLoadError || financialReportsLoadError || new Error("Could not load orders or users");
         if(ordersLoadError||reportsLoadError)setJacketLoadError("تعذر تحميل بيانات الطلبات أو البلاغات. أعد المحاولة قبل التعديل / Orders or reports failed to load. Retry before editing");
         if(ords){
           setOrders(ords.map(o=>({
             ...o,
+            status:Number(o.status),
+            total:Number(o.total)||0,paid:Number(o.paid)||0,jackets:Number(o.jackets)||0,
             payments:(o.payments||[]).map(p=>({id:p.id,date:p.date,amount:Number(p.amount),by:p.by||"",ref:p.ref||"",note:p.note||""})),
             history:parseStoredArray(o.history),
             extras:Number(o.extras)||0,
@@ -434,11 +456,11 @@ export default function App(){
         }
         if(reports)setSavedReports(reports);
         if(refundRows)setRefunds(refundRows.map(r=>({...r,comments:parseStoredArray(r.comments),history:parseStoredArray(r.history)})));
-      }catch(e){console.error("Failed to load Supabase data",e);setJacketLoadError("تعذر تحميل البيانات؛ أعد المحاولة / Data load failed; please retry");}
+      }catch(e){console.error("Failed to load Supabase data",e);setLoadError("تعذر تحميل البيانات. تحقق من الاتصال وأعد المحاولة / Could not load data. Check your connection and retry.");setJacketLoadError("تعذر تحميل البيانات؛ أعد المحاولة / Data load failed; please retry");}
       try{
         const savedUserId=localStorage.getItem("thawb_user_id");
         if(savedUserId){
-          const pool=loadedUsers||SEED_USERS;
+          const pool=loadedUsers||[];
           const restoredUser=pool.find(u=>String(u.id)===String(savedUserId));
           if(restoredUser){
             setCurrentUser(restoredUser);
@@ -450,7 +472,7 @@ export default function App(){
       setLoading(false);
     };
     loadData();
-  },[]);
+  },[loadAttempt]);
 
   const t=T[lang];
   const rtl=lang==="ar";
@@ -736,23 +758,14 @@ export default function App(){
   const totPaid=orders.reduce((s,o)=>s+o.paid,0);
   const pending=orders.filter(o=>o.paid<o.total);
 
-  const filtOrd=useMemo(()=>orders.filter(o=>{
-    const q=search.toLowerCase();
-    return(!q||o.id.toLowerCase().includes(q)||o.customer.toLowerCase().includes(q)||o.phone.includes(q))
-      &&(!fStatus.length||fStatus.includes(o.status))&&(!fSup.length||fSup.includes(o.supplier))&&(!urgentOnly||o.isUrgent);
-  }),[orders,search,fStatus,fSup,urgentOnly]);
+  const filtOrd=useMemo(()=>filterOrders(orders,{search,statuses:fStatus,suppliers:fSup,urgentOnly}),[orders,search,fStatus,fSup,urgentOnly]);
   const statusOptions=t.statuses.map((label,index)=>({value:index+1,label}));
   const supplierOptions=suppliers.map(({name})=>({value:name,label:name}));
   const warehouseOrders=useMemo(()=>orders.filter(o=>o.status===10),[orders]);
 
-  const rFilt=useMemo(()=>orders.filter(o=>{
-    if(rFrom&&o.date<rFrom)return false;if(rTo&&o.date>rTo)return false;
-    if(rSt.length&&!rSt.includes(o.status))return false;
-    if(rFac.length&&!rFac.includes(o.supplier))return false;
-    if(rType==="outstanding"&&o.total-o.paid<=0)return false;
-    if(rType==="delivered"&&o.status!==12)return false;
-    return true;
-  }),[orders,rFrom,rTo,rSt,rFac,rType]);
+  const rFilt=useMemo(()=>filterOrders(orders,{from:rFrom,to:rTo,statuses:rSt,suppliers:rFac,type:rType}),[orders,rFrom,rTo,rSt,rFac,rType]);
+  const orderResults=resultPage(filtOrd,ordersPage);
+  const reportResults=resultPage(rFilt,reportsPage);
 
   const cLabels={orderNum:t.orderNum,customer:t.customer,phone:t.phone,date:t.date,jackets:t.jackets,total:t.total,paid:t.paid,balance:t.balance,status:t.status,supplier:t.supplier,deliveryArea:rtl?"منطقة التوصيل":"Delivery Area",deliveryPaid:t.deliveryPayment,deliveryCost:rtl?"تكلفة التوصيل":"Delivery cost",deliveryRemaining:rtl?"المتبقي للتوصيل":"Delivery remaining"};
   const aCols=Object.keys(cols).filter(k=>cols[k]);
@@ -1175,6 +1188,7 @@ export default function App(){
   const openPrint=(data,title,isReport)=>{
     const ff=rtl?"Tajawal,Cairo,":"Inter,";
     const w=window.open("","_blank","width=900,height=900");
+    if(!w){showT(rtl?"اسمح بالنوافذ المنبثقة لفتح التقرير":"Allow pop-ups to open the report","error");return;}
     let body="";
     if(isReport){
       const sT=data.reduce((s,o)=>s+o.total,0),sP=data.reduce((s,o)=>s+o.paid,0);
@@ -1215,6 +1229,8 @@ export default function App(){
       </div>
     );
   }
+
+  if(loadError)return <div role="alert" style={{padding:32,textAlign:"center"}}><p>{loadError}</p><button onClick={()=>setLoadAttempt(value=>value+1)}>إعادة المحاولة / Retry</button></div>;
 
   // ── LOGIN SCREEN
   if(!currentUser){
@@ -1329,10 +1345,10 @@ export default function App(){
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.searchPlaceholder} style={{...IS,minWidth:220,width:"auto"}}/>
-            <MultiFilter label={t.status} allLabel={t.allStatuses} selected={fStatus} onChange={setFStatus} options={statusOptions} style={{...IS,width:"auto"}} />
-            <MultiFilter label={t.supplier} allLabel={t.allSuppliers} selected={fSup} onChange={setFSup} options={supplierOptions} style={{...IS,width:"auto"}} />
-            <button onClick={()=>setUrgentOnly(p=>!p)} style={{background:urgentOnly?"#FFF7ED":"transparent",border:"2px solid "+(urgentOnly?"#F97316":bc),borderRadius:8,padding:"7px 14px",cursor:"pointer",color:urgentOnly?"#F97316":tm,fontWeight:urgentOnly?800:500,fontSize:13,display:"flex",alignItems:"center",gap:6}}>
+            <input value={search} onChange={e=>{setSearch(e.target.value);setOrdersPage(1);}} placeholder={t.searchPlaceholder} style={{...IS,minWidth:220,width:"auto"}}/>
+            <MultiFilter label={t.status} allLabel={t.allStatuses} selected={fStatus} onChange={value=>{setFStatus(value);setOrdersPage(1);}} options={statusOptions} style={{...IS,width:"auto"}} />
+            <MultiFilter label={t.supplier} allLabel={t.allSuppliers} selected={fSup} onChange={value=>{setFSup(value);setOrdersPage(1);}} options={supplierOptions} style={{...IS,width:"auto"}} />
+            <button onClick={()=>{setUrgentOnly(p=>!p);setOrdersPage(1);}} style={{background:urgentOnly?"#FFF7ED":"transparent",border:"2px solid "+(urgentOnly?"#F97316":bc),borderRadius:8,padding:"7px 14px",cursor:"pointer",color:urgentOnly?"#F97316":tm,fontWeight:urgentOnly?800:500,fontSize:13,display:"flex",alignItems:"center",gap:6}}>
               ⚡ {rtl?"المستعجلة":"Urgent"}
               {orders.filter(o=>o.isUrgent).length>0&&<span style={{background:"#F97316",color:"#fff",borderRadius:10,padding:"1px 7px",fontSize:11,fontWeight:800}}>{orders.filter(o=>o.isUrgent).length}</span>}
             </button>
@@ -1357,7 +1373,7 @@ export default function App(){
                   {[t.orderNum,t.customer,t.phone,t.date,t.jackets,t.extrasShort,t.total,t.paid,t.balance,t.status,t.supplier,t.deliveryArea,t.deliveryPayment,t.actions].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                 </tr></thead>
                 <tbody>
-                  {filtOrd.map((o,i)=><OrderRow key={o.id} o={o} i={i}
+                  {orderResults.rows.map((o,i)=><OrderRow key={o.id} o={o} i={i}
                     selected={selectedOrderIdSet.has(o.id)} bc={bc} tm={tm} t={t} rtl={rtl}
                     label={sl(o.status)} badgeColor={sc(o.status).color} badgeBackground={sc(o.status).bg}
                     deliveryLabel={deliveryText(o)} navyLight={C.navyLight} greenLight={C.greenLight} fmt={fmt}
@@ -1367,6 +1383,7 @@ export default function App(){
                 </tbody>
               </table>
             </div>
+            <ResultPagination {...orderResults} onChange={setOrdersPage} rtl={rtl}/>
           </div>
         </div>}
 
@@ -1575,18 +1592,18 @@ export default function App(){
             <div style={{fontSize:13,fontWeight:700,marginBottom:12,color:tm}}>🔍 {rtl?"الفلاتر":"Filters"}</div>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
               {[[t.dateFrom,rFrom,setRFrom,"date"],[t.dateTo,rTo,setRTo,"date"]].map(([l,v,s,tp2])=>(
-                <div key={l}><label style={{display:"block",fontSize:11,fontWeight:600,color:tm,marginBottom:4}}>{l}</label><input type={tp2} value={v} onChange={e=>s(e.target.value)} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+bc,background:bgP,color:tp,fontSize:13}}/></div>
+                <div key={l}><label style={{display:"block",fontSize:11,fontWeight:600,color:tm,marginBottom:4}}>{l}</label><input type={tp2} value={v} onChange={e=>{s(e.target.value);setReportsPage(1);}} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+bc,background:bgP,color:tp,fontSize:13}}/></div>
               ))}
               <div><label style={{display:"block",fontSize:11,fontWeight:600,color:tm,marginBottom:4}}>{t.status}</label>
-                <MultiFilter label={t.status} allLabel={t.allStatuses} selected={rSt} onChange={setRSt} options={statusOptions} style={{...IS,width:"auto"}} />
+                <MultiFilter label={t.status} allLabel={t.allStatuses} selected={rSt} onChange={value=>{setRSt(value);setReportsPage(1);}} options={statusOptions} style={{...IS,width:"auto"}} />
               </div>
               <div><label style={{display:"block",fontSize:11,fontWeight:600,color:tm,marginBottom:4}}>{t.supplier}</label>
-                <MultiFilter label={t.supplier} allLabel={t.allSuppliers} selected={rFac} onChange={setRFac} options={supplierOptions} style={{...IS,width:"auto"}} />
+                <MultiFilter label={t.supplier} allLabel={t.allSuppliers} selected={rFac} onChange={value=>{setRFac(value);setReportsPage(1);}} options={supplierOptions} style={{...IS,width:"auto"}} />
               </div>
               <div><label style={{display:"block",fontSize:11,fontWeight:600,color:tm,marginBottom:4}}>{t.reportType}</label>
-                <select value={rType} onChange={e=>setRType(e.target.value)} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+bc,background:bgP,color:tp,fontSize:13}}><option value="all">{t.allOrdersType}</option><option value="outstanding">{t.outstandingOnly}</option><option value="delivered">{t.deliveredOnly}</option></select>
+                <select value={rType} onChange={e=>{setRType(e.target.value);setReportsPage(1);}} style={{padding:"8px 12px",borderRadius:8,border:"1px solid "+bc,background:bgP,color:tp,fontSize:13}}><option value="all">{t.allOrdersType}</option><option value="outstanding">{t.outstandingOnly}</option><option value="delivered">{t.deliveredOnly}</option></select>
               </div>
-              <button onClick={()=>{setRFrom("");setRTo("");setRSt([]);setRFac([]);setRType("all");}} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+bc,background:"transparent",color:tm,cursor:"pointer",fontSize:12}}>✕ {t.clearFilters}</button>
+              <button onClick={()=>{setRFrom("");setRTo("");setRSt([]);setRFac([]);setRType("all");setReportsPage(1);}} style={{padding:"8px 14px",borderRadius:8,border:"1px solid "+bc,background:"transparent",color:tm,cursor:"pointer",fontSize:12}}>✕ {t.clearFilters}</button>
             </div>
           </div>
           {showCols&&<div style={{background:bgC,border:"2px solid "+C.navyLight,borderRadius:12,padding:20,marginBottom:16}}>
@@ -1618,7 +1635,7 @@ export default function App(){
                 <thead><tr style={{background:dm?"#1A2744":C.slateLight}}>{aCols.map(k=><th key={k} style={{padding:"11px 14px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:tm,whiteSpace:"nowrap"}}>{cLabels[k]}</th>)}</tr></thead>
                 <tbody>
                   {rFilt.length===0?<tr><td colSpan={aCols.length} style={{padding:32,textAlign:"center",color:tm}}>{t.noResults}</td></tr>
-                  :rFilt.map((o,i)=>(
+                  :reportResults.rows.map((o,i)=>(
                     <tr key={o.id} onClick={()=>{setSelected(o);setPage("detail");}} style={{borderTop:"1px solid "+bc,background:i%2===0?"transparent":"rgba(0,0,0,0.01)",cursor:"pointer"}}>
                       {aCols.map(k=>{
                         if(k==="status")return <td key={k} style={{padding:"11px 14px"}}><Badge label={sl(o.status)} color={sc(o.status).color} background={sc(o.status).bg}/></td>;
@@ -1644,6 +1661,7 @@ export default function App(){
                 </tr></tfoot>}
               </table>
             </div>
+            <ResultPagination {...reportResults} onChange={setReportsPage} rtl={rtl}/>
           </div>
         </div>}
 
