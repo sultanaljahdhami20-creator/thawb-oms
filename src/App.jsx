@@ -1373,6 +1373,7 @@ export default function App(){
                   {[t.orderNum,t.customer,t.phone,t.date,t.jackets,t.extrasShort,t.total,t.paid,t.balance,t.status,t.supplier,t.deliveryArea,t.deliveryPayment,t.actions].map(h=><th key={h} style={{padding:"12px 14px",textAlign:"left",fontWeight:700,fontSize:11,textTransform:"uppercase",color:tm,whiteSpace:"nowrap"}}>{h}</th>)}
                 </tr></thead>
                 <tbody>
+                  {orderResults.rows.length===0&&<tr><td colSpan={15} style={{padding:24,textAlign:"center",color:tm}}>{rtl?"لا توجد طلبات مطابقة للفلاتر":"No orders found for these filters"}</td></tr>}
                   {orderResults.rows.map((o,i)=><OrderRow key={o.id} o={o} i={i}
                     selected={selectedOrderIdSet.has(o.id)} bc={bc} tm={tm} t={t} rtl={rtl}
                     label={sl(o.status)} badgeColor={sc(o.status).color} badgeBackground={sc(o.status).bg}
